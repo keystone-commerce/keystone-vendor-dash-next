@@ -22,12 +22,12 @@ async function handle(req: NextRequest) {
   if (!authorized(req)) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
-  try {
-    const result = await runSync(null);
-    return NextResponse.json({ ok: true, ranAt: new Date().toISOString(), ...result });
-  } catch (err) {
-    return NextResponse.json({ ok: false, error: (err as Error).message }, { status: 500 });
-  }
+  // Respond immediately so Zoho's webhook doesn't hit a read timeout — a full
+  // sync takes several seconds. The sync runs in the background.
+  runSync(null).catch((err) =>
+    console.warn(`[zoho webhook] background sync failed: ${(err as Error).message}`),
+  );
+  return NextResponse.json({ ok: true, queued: true, at: new Date().toISOString() });
 }
 
 // Zoho posts on the event; GET is handy for a quick manual test.

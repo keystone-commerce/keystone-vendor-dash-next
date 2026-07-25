@@ -77,7 +77,7 @@ export function PurchaseOrdersPanel() {
   if (pos.length === 0) return null;
 
   return (
-    <section className="card">
+    <section id="purchase-orders" className="card scroll-mt-4">
       {/* Header with inline filters: title · search · status dropdown */}
       <div className="p-4 border-b border-border flex flex-wrap items-center gap-3">
         <h2 className="text-lg font-bold">Purchase Orders</h2>
@@ -159,6 +159,7 @@ function PoRow({
   const [rejecting, setRejecting] = useState(false);
   const [reason, setReason] = useState("");
   const items = po.lineItems ?? [];
+  const needsZohoLink = po.status === "PENDING" && !po.zohoVendorId;
 
   return (
     <li className="p-4">
@@ -179,6 +180,14 @@ function PoRow({
           {po.status === "REJECTED" && po.decisionReason && (
             <div className="text-xs text-keystone-red mt-1">Rejected: {po.decisionReason}</div>
           )}
+          {/* Approval calls Zoho, which needs a linked vendor — say so up front
+              instead of letting the admin hit a failed request. */}
+          {needsZohoLink && (
+            <div className="text-xs text-keystone-amber mt-1">
+              ⚠ This vendor isn’t linked to Zoho Books yet — link it (vendor → Edit → “Create in
+              Zoho &amp; link”) before this PO can be approved.
+            </div>
+          )}
         </div>
 
         {!rejecting && (
@@ -188,7 +197,16 @@ function PoRow({
             </button>
             {isAdmin && po.status === "PENDING" && (
               <>
-                <button className="btn-primary py-1" disabled={busy} onClick={onApprove}>
+                <button
+                  className="btn-primary py-1"
+                  disabled={busy || needsZohoLink}
+                  title={
+                    needsZohoLink
+                      ? "Link this vendor to Zoho Books before approving"
+                      : "Approve and create in Zoho Books"
+                  }
+                  onClick={onApprove}
+                >
                   ✓ Approve
                 </button>
                 <button className="btn-danger py-1" disabled={busy} onClick={() => setRejecting(true)}>

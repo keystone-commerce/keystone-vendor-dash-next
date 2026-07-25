@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Header } from "@/features/layout/Header";
 import { Footer } from "@/features/layout/Footer";
@@ -26,15 +26,18 @@ export function DashboardPage() {
   const [openVendorId, setOpenVendorId] = useState<string | null>(null);
   const [creatingVendor, setCreatingVendor] = useState(false);
   const [generatingPo, setGeneratingPo] = useState(false);
+  const [statsOpen, setStatsOpen] = useState(false);
 
   const { data: stats } = useQuery({
     queryKey: ["dashboard", "stats"],
     queryFn: dashboardApi.stats,
   });
 
-  const { data: vendorsPage } = useQuery({
+  const { data: vendorsPage, isLoading: vendorsLoading } = useQuery({
     queryKey: ["vendors", query],
     queryFn: () => vendorsApi.list(query),
+    // Keep showing the previous list while a new filter/search loads (no blank flash).
+    placeholderData: (prev) => prev,
   });
 
   const vendors = vendorsPage?.items ?? [];
@@ -49,21 +52,37 @@ export function DashboardPage() {
           onQueryChange={(p) => setQuery((q) => ({ ...q, ...p }))}
           onAddVendor={() => setCreatingVendor(true)}
           onGeneratePo={() => setGeneratingPo(true)}
+          statsOpen={statsOpen}
+          onToggleStats={() => setStatsOpen((v) => !v)}
+          statusSlot={
+            <>
+              <ZohoBanner />
+              <DriveBanner />
+            </>
+          }
         />
-        <ZohoBanner />
-        <DriveBanner />
-        {stats && <StatCards stats={stats} />}
-        {stats && (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <PipelineChart stats={stats} />
-            <CategoryValueChart stats={stats} />
-            <InvoiceStatusChart stats={stats} />
-            <TopVendorsChart stats={stats} />
+
+        {/* Stats stay out of the way until asked for (the "Stats" toolbar button). */}
+        {statsOpen && stats && (
+          <div className="space-y-4">
+            <StatCards stats={stats} />
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <PipelineChart stats={stats} />
+              <CategoryValueChart stats={stats} />
+              <InvoiceStatusChart stats={stats} />
+              <TopVendorsChart stats={stats} />
+            </div>
           </div>
         )}
+
         <PurchaseOrdersPanel />
         <KanbanBoard vendors={vendors} onOpenVendor={setOpenVendorId} />
-        <VendorsTable vendors={vendors} total={total} onOpenVendor={setOpenVendorId} />
+        <VendorsTable
+          vendors={vendors}
+          total={total}
+          loading={vendorsLoading}
+          onOpenVendor={setOpenVendorId}
+        />
       </main>
       <Footer />
 
