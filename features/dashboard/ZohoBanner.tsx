@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import type { VendorDto, ZohoUnmatchedInvoiceDto } from "@shared";
@@ -7,12 +7,14 @@ import { apiError } from "@/lib/api-client";
 import { formatInr } from "@shared";
 
 /**
- * Zoho Books connection strip: live status indicator, a "Sync invoices" button,
- * and the unmatched-invoices assignment flow (PRD §9.1 / §9.2).
+ * Compact Zoho Books status chip: a live dot + name, with a popover holding the
+ * "Sync invoices" action and the unmatched-invoice assignment flow. Designed to sit
+ * inline in the toolbar rather than as a full-width banner.
  */
 export function ZohoBanner() {
   const qc = useQueryClient();
-  const [expanded, setExpanded] = useState(false);
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
 
   const { data: status } = useQuery({
     queryKey: ["zoho", "status"],
@@ -24,6 +26,14 @@ export function ZohoBanner() {
     queryFn: zohoApi.unmatched,
   });
 
+  useEffect(() => {
+    function onDoc(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    }
+    document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, []);
+
   const sync = useMutation({
     mutationFn: zohoApi.sync,
     onSuccess: (r) => {
@@ -31,7 +41,7 @@ export function ZohoBanner() {
         `Zoho sync complete — ${r.added} added, ${r.updated} updated, ${r.unmatched} unmatched.`,
       );
       qc.invalidateQueries();
-      if (r.unmatched > 0) setExpanded(true);
+      if (r.unmatched > 0) setOpen(true);
     },
     onError: (err) => toast.error(apiError(err, "Sync failed")),
   });
@@ -46,49 +56,49 @@ export function ZohoBanner() {
         ? "Zoho Books is connected"
         : "Zoho Books needs attention"
       : "Zoho Books — demo mode (no live account connected)";
-  const subtitle = !status
-    ? ""
-    : status.enabled && healthy
-      ? `Invoices are pulled in automatically from your Zoho Books account (${status.dataCenter.toUpperCase()}).`
-      : status.enabled
-        ? status.message || "Couldn't reach Zoho Books — check the connection and try syncing again."
-        : "Using sample invoice data until a real Zoho Books account is connected.";
 
   return (
-    <div className="card bg-orange-light border-orange/30 p-4">
-      <div className="flex flex-wrap items-center gap-3">
-        <span className={`inline-block w-2.5 h-2.5 rounded-full ${dotClass}`} title={title} />
-        <div className="flex-1 min-w-0">
-          <p className="text-sm font-medium text-rust-dark">{title}</p>
-          <p className="text-xs text-muted">
-            {subtitle}{" "}
-            {status?.lastSyncAt
-              ? `Last synced ${new Date(status.lastSyncAt).toLocaleString("en-IN")}.`
-              : "Not synced yet this session."}
-          </p>
-        </div>
-        <button
-          className="btn-primary min-w-[140px]"
-          onClick={() => sync.mutate()}
-          disabled={sync.isPending}
-        >
-          {sync.isPending ? "Syncing…" : "Sync invoices"}
-        </button>
-      </div>
+    <div className="relative" ref={ref}>
+      <button className="btn" onClick={() => setOpen((v) => !v)} title={title}>
+        <span className={`block w-2 h-2 shrink-0 self-center rounded-full ${dotClass}`} />
+        Zoho Books
+        {unmatched.length > 0 && (
+          <span className="chip bg-keystone-amber/20 text-keystone-amber ml-1">
+            {unmatched.length}
+          </span>
+        )}
+      </button>
 
-      {unmatched.length > 0 && (
-        <div className="mt-3 pt-3 border-t border-orange/30">
-          <button
-            className="text-sm font-medium text-rust-dark"
-            onClick={() => setExpanded((v) => !v)}
-          >
-            {unmatched.length} unmatched invoice(s) need a vendor {expanded ? "▲" : "▼"}
-          </button>
-          {expanded && (
-            <div className="mt-3 space-y-2">
-              {unmatched.map((inv) => (
-                <UnmatchedRow key={inv.zohoId} inv={inv} onDone={() => qc.invalidateQueries()} />
-              ))}
+      {open && (
+        <div className="absolute z-40 mt-1 w-[min(640px,88vw)] card p-3 shadow-xl space-y-3">
+          <div className="flex items-start gap-3">
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-medium text-rust-dark">{title}</p>
+              <p className="text-xs text-muted">
+                {status?.lastSyncAt
+                  ? `Last synced ${new Date(status.lastSyncAt).toLocaleString("en-IN")}.`
+                  : "Invoices sync automatically from Zoho Books."}
+              </p>
+            </div>
+            <button
+              className="btn-primary whitespace-nowrap"
+              onClick={() => sync.mutate()}
+              disabled={sync.isPending}
+            >
+              {sync.isPending ? "Syncing…" : "Sync now"}
+            </button>
+          </div>
+
+          {unmatched.length > 0 && (
+            <div className="pt-3 border-t border-border space-y-2">
+              <p className="text-sm font-medium text-rust-dark">
+                {unmatched.length} invoice(s) need to be linked to a vendor
+              </p>
+              <div className="max-h-72 overflow-y-auto space-y-2">
+                {unmatched.map((inv) => (
+                  <UnmatchedRow key={inv.zohoId} inv={inv} onDone={() => qc.invalidateQueries()} />
+                ))}
+              </div>
             </div>
           )}
         </div>
@@ -120,7 +130,7 @@ function UnmatchedRow({
   });
 
   return (
-    <div className="flex flex-wrap items-center gap-2 bg-white/80 rounded-keystone p-2">
+    <div className="flex flex-wrap items-center gap-2 bg-orange-light/40 rounded-keystone p-2">
       <span className="text-xs font-medium flex-1 min-w-0 truncate" title={inv.vendorName}>
         <span className="chip bg-orange text-white mr-2">{inv.invoiceNumber}</span>
         {inv.vendorName} · {formatInr(inv.amount)} · {inv.status}
@@ -131,7 +141,7 @@ function UnmatchedRow({
         </a>
       )}
       <select
-        className="input max-w-[220px] py-1"
+        className="input max-w-[200px] py-1"
         value={selectedVendor}
         onChange={(e) => setSelectedVendor(e.target.value)}
       >

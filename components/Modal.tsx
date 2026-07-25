@@ -25,12 +25,14 @@ export function Modal({ title, children, onClose }: Props) {
       aria-modal="true"
       aria-label={title}
     >
+      {/* Caps at the viewport height so the body scrolls inside while the header
+          (and its close button) stays visible — important on small laptops. */}
       <div
         ref={ref}
-        className="bg-card border border-border rounded-keystone w-full max-w-3xl my-8 shadow-xl"
+        className="bg-card border border-border rounded-keystone w-full max-w-3xl my-4 shadow-xl flex flex-col max-h-[calc(100vh-2rem)]"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="px-6 py-4 border-b border-border flex items-center justify-between">
+        <div className="px-6 py-4 border-b border-border flex items-center justify-between shrink-0">
           <h2 className="text-lg font-bold">{title}</h2>
           <button
             className="text-2xl leading-none text-muted hover:text-ink"
@@ -40,7 +42,7 @@ export function Modal({ title, children, onClose }: Props) {
             ×
           </button>
         </div>
-        <div className="p-6">{children}</div>
+        <div className="p-6 overflow-y-auto">{children}</div>
       </div>
     </div>
   );

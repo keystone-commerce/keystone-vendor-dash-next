@@ -10,6 +10,7 @@ import {
 import { useState } from "react";
 import { VENDOR_CATEGORY_LABELS, VendorDto, VendorStage } from "@shared";
 import { formatInr, formatDate } from "@/lib/format";
+import { SkeletonRows } from "@/components/Skeleton";
 
 const STAGE_CHIP: Record<VendorStage, string> = {
   IN_TALKS: "bg-keystone-blue/10 text-keystone-blue",
@@ -26,10 +27,11 @@ const STAGE_LABEL: Record<VendorStage, string> = {
 interface Props {
   vendors: VendorDto[];
   total: number;
+  loading?: boolean;
   onOpenVendor: (id: string) => void;
 }
 
-export function VendorsTable({ vendors, total, onOpenVendor }: Props) {
+export function VendorsTable({ vendors, total, loading = false, onOpenVendor }: Props) {
   const [sorting, setSorting] = useState<SortingState>([]);
 
   const columns = useMemo<ColumnDef<VendorDto>[]>(
@@ -65,6 +67,22 @@ export function VendorsTable({ vendors, total, onOpenVendor }: Props) {
         cell: ({ row }) =>
           `${row.original.catalogueCount ?? 0} cat / ${row.original.invoiceCount ?? 0} inv`,
       },
+      {
+        id: "zoho",
+        header: "Zoho",
+        // Surfaced here because a PO can't be approved until the vendor is linked.
+        cell: ({ row }) =>
+          row.original.zohoVendorId ? (
+            <span className="chip bg-keystone-green/10 text-keystone-green">Linked</span>
+          ) : (
+            <span
+              className="chip bg-keystone-amber/15 text-keystone-amber"
+              title="Link this vendor to Zoho Books before raising/approving a PO"
+            >
+              Not linked
+            </span>
+          ),
+      },
     ],
     [],
   );
@@ -79,15 +97,23 @@ export function VendorsTable({ vendors, total, onOpenVendor }: Props) {
   });
 
   return (
-    <section className="card overflow-hidden">
+    <section id="vendors-table" className="card overflow-hidden scroll-mt-4">
       <div className="p-4 border-b border-border flex items-baseline justify-between">
         <h2 className="text-lg font-bold">All Vendors</h2>
         <p className="text-xs text-muted">
           {vendors.length} of {total} shown
         </p>
       </div>
-      {vendors.length === 0 ? (
-        <div className="p-12 text-center text-sm text-muted">No vendors match your filters.</div>
+      {loading && vendors.length === 0 ? (
+        <div className="p-4">
+          <SkeletonRows rows={5} />
+        </div>
+      ) : vendors.length === 0 ? (
+        <div className="p-12 text-center text-sm text-muted">
+          {total === 0
+            ? "No vendors yet — click “+ Add Vendor” to add your first one."
+            : "No vendors match your search or filters."}
+        </div>
       ) : (
         <div className="overflow-x-auto">
           <table className="w-full text-sm">

@@ -1,13 +1,18 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import type { VendorDto } from "@shared";
 import { driveApi, UnassignedFile, vendorsApi } from "@/lib/api";
 import { apiError } from "@/lib/api-client";
 
+/**
+ * Compact Google Drive status chip: a live dot + name, an arrow button that opens the
+ * Drive folder, and a popover for any files that still need a vendor.
+ */
 export function DriveBanner() {
   const qc = useQueryClient();
-  const [expanded, setExpanded] = useState(false);
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
 
   const { data: status } = useQuery({
     queryKey: ["drive", "status"],
@@ -18,6 +23,14 @@ export function DriveBanner() {
     queryFn: driveApi.unassigned,
   });
 
+  useEffect(() => {
+    function onDoc(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    }
+    document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, []);
+
   const dotClass = status?.enabled ? "bg-keystone-green" : "bg-keystone-amber";
   const title = !status
     ? "Checking Google Drive…"
@@ -26,42 +39,52 @@ export function DriveBanner() {
       : "Google Drive is not configured";
 
   return (
-    <div className="card bg-orange-light border-orange/30 p-4">
-      <div className="flex flex-wrap items-center gap-3">
-        <span className={`inline-block w-2.5 h-2.5 rounded-full ${dotClass}`} title={title} />
-        <div className="flex-1 min-w-0">
-          <p className="text-sm font-medium text-rust-dark">{title}</p>
-          <p className="text-xs text-muted">
-            Catalogues you upload from a vendor’s page are saved to the Vendors Catalog folder
-            automatically.
-          </p>
-        </div>
-        <div className="flex items-center gap-3 whitespace-nowrap">
-          {status?.folderUrl && (
-            <a
-              className="text-orange-deep font-semibold text-sm"
-              href={status.folderUrl}
-              target="_blank"
-              rel="noreferrer"
-            >
-              Open Drive folder ↗
-            </a>
-          )}
-        </div>
-      </div>
-      {unassigned.length > 0 && (
-        <div className="mt-3 pt-3 border-t border-orange/30">
-          <button
-            className="text-sm font-medium text-rust-dark"
-            onClick={() => setExpanded((v) => !v)}
-          >
-            {unassigned.length} unassigned file(s) need review {expanded ? "▲" : "▼"}
-          </button>
-          {expanded && (
-            <div className="mt-3 space-y-2">
-              {unassigned.map((f) => (
-                <UnassignedRow key={f.fileId} file={f} onDone={() => qc.invalidateQueries()} />
-              ))}
+    <div className="relative inline-flex items-center" ref={ref}>
+      {/* Split control: the label opens details, the arrow opens the Drive folder. */}
+      <button
+        className="btn rounded-r-none border-r-0"
+        onClick={() => setOpen((v) => !v)}
+        title={title}
+      >
+        <span className={`block w-2 h-2 shrink-0 self-center rounded-full ${dotClass}`} />
+        Drive
+        {unassigned.length > 0 && (
+          <span className="chip bg-keystone-amber/20 text-keystone-amber ml-1">
+            {unassigned.length}
+          </span>
+        )}
+      </button>
+      <a
+        className="btn rounded-l-none px-2.5 text-orange-deep font-semibold"
+        href={status?.folderUrl ?? "#"}
+        target="_blank"
+        rel="noreferrer"
+        title="Open the Vendors Catalog folder in Google Drive"
+        aria-label="Open Drive folder"
+      >
+        ↗
+      </a>
+
+      {open && (
+        <div className="absolute top-full left-0 z-40 mt-1 w-[min(640px,88vw)] card p-3 shadow-xl space-y-3">
+          <div>
+            <p className="text-sm font-medium text-rust-dark">{title}</p>
+            <p className="text-xs text-muted">
+              Catalogues you upload from a vendor’s page are saved to the Vendors Catalog folder
+              automatically.
+            </p>
+          </div>
+
+          {unassigned.length > 0 && (
+            <div className="pt-3 border-t border-border space-y-2">
+              <p className="text-sm font-medium text-rust-dark">
+                {unassigned.length} catalogue file(s) need to be linked to a vendor
+              </p>
+              <div className="max-h-72 overflow-y-auto space-y-2">
+                {unassigned.map((f) => (
+                  <UnassignedRow key={f.fileId} file={f} onDone={() => qc.invalidateQueries()} />
+                ))}
+              </div>
             </div>
           )}
         </div>
@@ -96,13 +119,13 @@ function UnassignedRow({ file, onDone }: { file: UnassignedFile; onDone: () => v
   });
 
   return (
-    <div className="flex flex-wrap items-center gap-2 bg-white/80 rounded-keystone p-2">
+    <div className="flex flex-wrap items-center gap-2 bg-orange-light/40 rounded-keystone p-2">
       <span className="text-xs font-medium flex-1 min-w-0 truncate" title={file.name}>
         <span className="chip bg-orange text-white mr-2">{file.kind}</span>
         {file.name}
       </span>
       <select
-        className="input max-w-[220px] py-1"
+        className="input max-w-[200px] py-1"
         value={selectedVendor}
         onChange={(e) => setSelectedVendor(e.target.value)}
       >
