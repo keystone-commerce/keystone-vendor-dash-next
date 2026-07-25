@@ -21,6 +21,7 @@
     "@prisma/client": "^6.2.0",
     "@tanstack/react-query": "^5.62.0",
     "@tanstack/react-table": "^8.20.6",
+    "@vercel/functions": "^3.7.5",
     "axios": "^1.18.1",
     "bcryptjs": "^3.0.0",
     "chart.js": "^4.4.7",
