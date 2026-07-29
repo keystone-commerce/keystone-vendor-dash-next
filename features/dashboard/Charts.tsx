@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { Bar, Doughnut } from "react-chartjs-2";
 import {
   ArcElement,
@@ -12,6 +13,7 @@ import {
 import { VENDOR_CATEGORY_LABELS } from "@shared";
 import type { DashboardStats } from "@/lib/api";
 import { formatInr } from "@/lib/format";
+import { useTheme } from "@/lib/use-theme";
 
 ChartJS.register(BarElement, CategoryScale, LinearScale, ArcElement, Tooltip, Legend);
 
@@ -39,7 +41,22 @@ const commonOpts: ChartOptions<any> = {
   plugins: { legend: { display: false } },
 };
 
+/**
+ * Chart.js paints axis labels, legends and grid lines with its own defaults (dark
+ * grey), which is unreadable on a dark background. Sync those to the active theme.
+ * Returns `isDark` so callers can re-key the canvas and force a repaint on switch.
+ */
+function useChartTheme() {
+  const { isDark } = useTheme();
+  useEffect(() => {
+    ChartJS.defaults.color = isDark ? "#9A9188" : "#8A7A6E";
+    ChartJS.defaults.borderColor = isDark ? "rgba(255,255,255,0.09)" : "rgba(0,0,0,0.07)";
+  }, [isDark]);
+  return isDark;
+}
+
 export function PipelineChart({ stats }: { stats: DashboardStats }) {
+  const isDark = useChartTheme();
   const data = {
     labels: ["In Talks", "Catalogue Received", "Purchase Made"],
     datasets: [
@@ -57,12 +74,13 @@ export function PipelineChart({ stats }: { stats: DashboardStats }) {
   };
   return (
     <ChartCard title="Vendor Pipeline">
-      <Bar data={data} options={{ ...commonOpts, scales: { y: { beginAtZero: true } } }} />
+      <Bar key={String(isDark)} data={data} options={{ ...commonOpts, scales: { y: { beginAtZero: true } } }} />
     </ChartCard>
   );
 }
 
 export function CategoryValueChart({ stats }: { stats: DashboardStats }) {
+  const isDark = useChartTheme();
   const rows = stats.contractValueByCategory;
   const data = {
     labels: rows.map((r) => VENDOR_CATEGORY_LABELS[r.category]),
@@ -78,6 +96,7 @@ export function CategoryValueChart({ stats }: { stats: DashboardStats }) {
   return (
     <ChartCard title="Contract Value by Category">
       <Bar
+        key={String(isDark)}
         data={data}
         options={{
           ...commonOpts,
@@ -99,6 +118,7 @@ export function CategoryValueChart({ stats }: { stats: DashboardStats }) {
 }
 
 export function InvoiceStatusChart({ stats }: { stats: DashboardStats }) {
+  const isDark = useChartTheme();
   const data = {
     labels: ["Paid", "Unpaid", "Overdue"],
     datasets: [
@@ -112,6 +132,7 @@ export function InvoiceStatusChart({ stats }: { stats: DashboardStats }) {
   return (
     <ChartCard title="Invoice Status">
       <Doughnut
+        key={String(isDark)}
         data={data}
         options={{ ...commonOpts, cutout: "60%", plugins: { legend: { display: true, position: "bottom" } } }}
       />
@@ -120,6 +141,7 @@ export function InvoiceStatusChart({ stats }: { stats: DashboardStats }) {
 }
 
 export function TopVendorsChart({ stats }: { stats: DashboardStats }) {
+  const isDark = useChartTheme();
   const data = {
     labels: stats.topVendors.map((v) =>
       v.name.length > 18 ? v.name.slice(0, 18) + "…" : v.name,
@@ -136,6 +158,7 @@ export function TopVendorsChart({ stats }: { stats: DashboardStats }) {
   return (
     <ChartCard title="Top 5 Vendors by Contract Value">
       <Bar
+        key={String(isDark)}
         data={data}
         options={{
           ...commonOpts,

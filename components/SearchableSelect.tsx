@@ -69,7 +69,7 @@ export function SearchableSelect({
       </button>
 
       {open && (
-        <div className="absolute z-40 mt-1 w-full min-w-[220px] rounded-keystone border border-border bg-white shadow-xl">
+        <div className="absolute z-40 mt-1 w-full min-w-[220px] rounded-keystone border border-border bg-card shadow-xl">
           {showSearch && (
             <div className="p-2 border-b border-border">
               <input

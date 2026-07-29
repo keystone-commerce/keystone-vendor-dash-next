@@ -4,7 +4,7 @@ import { audit } from "./audit";
 import { sendMail } from "./mail";
 import { createZohoPurchaseOrder } from "./zoho";
 import { buildPoPdf } from "./po-pdf";
-import { fetchPurchaseOrderPdf } from "./zoho/client";
+import { fetchPurchaseOrderPdfWithRetry } from "./zoho/client";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -13,6 +13,10 @@ interface PoLine {
   quantity: number;
   rate: number;
   hsn?: string;
+  gstPercent?: number;
+  itemCode?: string;
+  brand?: string;
+  uom?: string;
 }
 
 function serialize(po: any) {
@@ -28,8 +32,9 @@ function serialize(po: any) {
 }
 
 /**
- * PDF for a purchase order. If it's been approved and exists in Zoho, return the
- * official Zoho PO PDF; otherwise generate one from our own data (pending POs).
+ * PDF for a purchase order. Once approved and created in Zoho, View shows the OFFICIAL
+ * Zoho PO PDF (with a short retry, since Zoho can lag right after creation). Pending
+ * POs — and any case where Zoho can't produce the PDF — use our Keystone-format PDF.
  */
 export async function getPurchaseOrderPdf(id: string): Promise<Buffer> {
   const po = await prisma.purchaseOrder.findUnique({ where: { id }, include: { vendor: true } });
@@ -37,10 +42,10 @@ export async function getPurchaseOrderPdf(id: string): Promise<Buffer> {
 
   if (po.zohoId && process.env.ZOHO_ENABLED === "true") {
     try {
-      return await fetchPurchaseOrderPdf(po.zohoId);
+      return await fetchPurchaseOrderPdfWithRetry(po.zohoId);
     } catch (err) {
-      // Fall back to our own rendering if Zoho can't produce it right now.
-      console.warn(`[po] Zoho PDF unavailable for ${id}, using generated PDF: ${(err as Error).message}`);
+      // Zoho unavailable — fall back to our generated PDF so View still works.
+      console.warn(`[po] Zoho PDF unavailable for ${id}, using generated: ${(err as Error).message}`);
     }
   }
 
@@ -48,7 +53,15 @@ export async function getPurchaseOrderPdf(id: string): Promise<Buffer> {
     vendorName: po.vendor.name,
     poNumber: po.poNumber,
     createdAt: po.createdAt,
+    vendorCode: po.vendor.zohoVendorId || po.vendor.id,
     lineItems: (po.lineItems as any[]) ?? [],
+    supplier: {
+      address: po.vendor.gstAddress,
+      gstin: po.vendor.gstin,
+      contactName: po.vendor.contactName,
+      email: po.vendor.email,
+      phone: po.vendor.phone,
+    },
   });
 }
 
@@ -121,7 +134,15 @@ export async function createPurchaseOrder(
         vendorName: vendor.name,
         poNumber: po.poNumber,
         createdAt: po.createdAt,
+        vendorCode: vendor.zohoVendorId || vendor.id,
         lineItems: dto.lineItems,
+        supplier: {
+          address: vendor.gstAddress,
+          gstin: vendor.gstin,
+          contactName: vendor.contactName,
+          email: vendor.email,
+          phone: vendor.phone,
+        },
       });
       const fileLabel = (po.poNumber || `PO-${po.id.slice(0, 8)}`).replace(/[^\w.-]/g, "_");
       attachments = [{ filename: `${fileLabel}.pdf`, content: pdf, contentType: "application/pdf" }];
@@ -154,11 +175,12 @@ export async function approvePurchaseOrder(id: string, actorUserId: string | nul
   const lineItems = (po.lineItems as any[]) ?? [];
   let result;
   try {
+    // No emailTo — we don't want Zoho sending its own plain PDF to the vendor. We
+    // email our Keystone PDF ourselves below (to both the vendor and the submitter).
     result = await createZohoPurchaseOrder({
       zohoVendorId: po.vendor.zohoVendorId,
       poNumber: po.poNumber,
       lineItems,
-      emailTo: po.vendor.email ? [po.vendor.email] : undefined,
     });
   } catch (err) {
     throw new HttpError(502, `Zoho rejected the Purchase Order: ${(err as Error).message}`);
@@ -178,16 +200,27 @@ export async function approvePurchaseOrder(id: string, actorUserId: string | nul
   });
   await audit({ userId: actorUserId, action: "PO_APPROVE", entityType: "PurchaseOrder", entityId: id, metadata: { zohoId: result.zohoId, poNumber: result.poNumber } });
 
-  // Attach the approved PO PDF (Zoho's if available, else our generated one) to the
-  // creator's approval email. Soft-fail: still send the message if the PDF can't load.
+  // Attach the OFFICIAL Zoho PO PDF to the approval email (the vendor gets the same
+  // one from Zoho's own email). Only if Zoho can't produce it do we fall back to our
+  // generated PDF — so the submitter gets the real approved document, not the
+  // pre-approval one. Soft-fail: still send the message if no PDF can load.
+  const label = (result.poNumber || po.poNumber || `PO-${id.slice(0, 8)}`).replace(/[^\w.-]/g, "_");
   let attachments;
   try {
-    const pdf = await getPurchaseOrderPdf(id);
-    const label = (result.poNumber || po.poNumber || `PO-${id.slice(0, 8)}`).replace(/[^\w.-]/g, "_");
+    const pdf = result.zohoId
+      ? await fetchPurchaseOrderPdfWithRetry(result.zohoId)
+      : await getPurchaseOrderPdf(id);
     attachments = [{ filename: `${label}.pdf`, content: pdf, contentType: "application/pdf" }];
   } catch (err) {
-    console.warn(`[po] approved PDF unavailable for ${id}: ${(err as Error).message}`);
+    console.warn(`[po] Zoho PDF unavailable for ${id}, falling back to generated: ${(err as Error).message}`);
+    try {
+      const pdf = await getPurchaseOrderPdf(id);
+      attachments = [{ filename: `${label}.pdf`, content: pdf, contentType: "application/pdf" }];
+    } catch (err2) {
+      console.warn(`[po] no PDF at all for ${id}: ${(err2 as Error).message}`);
+    }
   }
+  // Email the submitter (the member who raised the PO).
   await notifyCreator(
     po.createdById,
     `✅ PO approved — ${po.vendor.name} (${result.poNumber})`,
@@ -199,6 +232,26 @@ export async function approvePurchaseOrder(id: string, actorUserId: string | nul
       `\nThe approved purchase order is attached as a PDF.\n\n${appUrl()}\n`,
     attachments,
   );
+
+  // Email the vendor the same approved PO PDF, from our own (reliable) mail transport
+  // rather than Zoho's — Zoho's email step was silently failing under token throttling.
+  if (po.vendor.email) {
+    try {
+      await sendMail({
+        to: po.vendor.email,
+        subject: `Purchase Order ${result.poNumber || po.poNumber}`,
+        text:
+          `Dear ${po.vendor.name},\n\n` +
+          `Please find attached Purchase Order ${result.poNumber || po.poNumber} from ` +
+          `Keystone Commerce Private Limited.\n\n` +
+          `Kindly acknowledge acceptance within two (2) working days.\n\n` +
+          `Regards,\nKeystone Commerce Private Limited\n`,
+        attachments,
+      });
+    } catch (err) {
+      console.warn(`[po] vendor email failed for ${id}: ${(err as Error).message}`);
+    }
+  }
   return serialize(updated);
 }
 

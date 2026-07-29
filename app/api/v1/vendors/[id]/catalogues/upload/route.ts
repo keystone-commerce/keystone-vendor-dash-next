@@ -27,15 +27,16 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     const title = String(form.get("title") ?? "").trim();
     const rename = String(form.get("filename") ?? "").trim();
 
-    // Respect the user's chosen name; keep the original extension if they left it off.
+    // If the user typed a Rename, that's the exact filename — don't prepend the
+    // vendor name (that caused a doubled "Vendor - Vendor.pdf" look). Only when
+    // Rename is left blank do we prefix the vendor name so an otherwise generic
+    // original filename ("scan.pdf") stays identifiable in the shared Drive folder.
     const ext = file.name.match(/\.[a-z0-9]+$/i)?.[0] ?? "";
-    const chosen = rename
+    const fileName = rename
       ? /\.[a-z0-9]+$/i.test(rename)
         ? rename
         : rename + ext
-      : file.name;
-    // Prefix the vendor name for a readable, self-describing Drive filename.
-    const fileName = `${vendor.name.trim()} - ${chosen}`;
+      : `${vendor.name.trim()} - ${file.name}`;
 
     const data = Buffer.from(await file.arrayBuffer());
     let uploaded;

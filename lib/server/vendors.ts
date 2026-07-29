@@ -104,6 +104,8 @@ export async function createVendor(dto: any, actorUserId: string | null) {
       contractStart: dto.contractStart ? new Date(dto.contractStart) : null,
       contractEnd: dto.contractEnd ? new Date(dto.contractEnd) : null,
       notes: dto.notes,
+      gstin: dto.gstin || null,
+      gstAddress: dto.gstAddress || null,
     },
   });
   await audit({ userId: actorUserId, action: "VENDOR_CREATE", entityType: "Vendor", entityId: vendor.id, metadata: { name: vendor.name } });

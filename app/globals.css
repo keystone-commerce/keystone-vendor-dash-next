@@ -3,6 +3,63 @@
 @tailwind utilities;
 
 @layer base {
+  /*
+   * Keystone palette as space-separated RGB channels. The channel form (rather than
+   * hex) is what lets Tailwind opacity modifiers keep working — e.g. bg-orange-light/40
+   * compiles to rgb(var(--k-orange-light) / 0.4).
+   */
+  :root {
+    --k-bg: 251 246 241;
+    --k-card: 255 255 255;
+    --k-ink: 43 35 32;
+    --k-muted: 138 122 110;
+    --k-border: 238 224 211;
+    --k-orange: 255 145 77;
+    --k-orange-deep: 240 134 46;
+    --k-orange-light: 255 241 228;
+    --k-rust: 168 83 42;
+    --k-rust-dark: 124 60 29;
+    --k-green: 5 150 105;
+    --k-amber: 217 119 6;
+    --k-red: 220 38 38;
+    --k-blue: 37 99 235;
+
+    /* Geist/shadcn tokens used by components under components/ui. */
+    --ds-gray-1000: hsla(0, 0%, 9%, 1);
+    --ds-gray-alpha-400: hsla(0, 0%, 0%, 0.08);
+    --ds-background-100: hsla(0, 0%, 100%, 1);
+    --geist-background: #fff;
+  }
+
+  .dark {
+    /*
+     * Near-neutral dark greys with only a hint of warmth. A heavily brown base made
+     * the UI look muddy and fought with the orange; keeping the surfaces neutral lets
+     * the brand colour read as an accent. Filled orange is also dialled back slightly
+     * (fully saturated orange vibrates against dark), while orange used for *text* is
+     * lightened so it stays legible.
+     */
+    --k-bg: 0 0 0;
+    --k-card: 18 18 18;
+    --k-ink: 237 237 237;
+    --k-muted: 143 143 143;
+    --k-border: 42 42 42;
+    --k-orange: 230 122 60;
+    --k-orange-deep: 255 172 115;
+    --k-orange-light: 40 27 18;
+    --k-rust: 214 130 88;
+    --k-rust-dark: 232 160 116;
+    --k-green: 52 211 153;
+    --k-amber: 251 191 36;
+    --k-red: 248 113 113;
+    --k-blue: 96 165 250;
+
+    --ds-gray-1000: hsla(0, 0%, 93%, 1);
+    --ds-gray-alpha-400: hsla(0, 0%, 100%, 0.14);
+    --ds-background-100: hsla(0, 0%, 7%, 1);
+    --geist-background: #000;
+  }
+
   body {
     @apply bg-bg text-ink font-sans antialiased;
   }
@@ -17,17 +74,17 @@
   }
   .btn {
     @apply inline-flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-keystone
-           text-sm font-medium border border-border bg-white text-ink
+           text-sm font-medium border border-border bg-card text-ink
            hover:bg-orange-light transition-colors disabled:opacity-50 disabled:cursor-not-allowed;
   }
   .btn-primary {
     @apply btn border-orange-deep bg-orange text-white hover:bg-orange-deep;
   }
   .btn-danger {
-    @apply btn border-keystone-red text-keystone-red hover:bg-red-50;
+    @apply btn border-keystone-red text-keystone-red hover:bg-keystone-red/10;
   }
   .input {
-    @apply w-full px-3 py-2 rounded-keystone border border-border bg-white text-sm
+    @apply w-full px-3 py-2 rounded-keystone border border-border bg-card text-ink text-sm
            focus:outline-none focus:ring-2 focus:ring-orange/40 focus:border-orange;
   }
   /* Native selects: drop the default arrow, add a branded chevron + room for it. */

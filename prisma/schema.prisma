@@ -76,6 +76,16 @@ model Vendor {
   contractEnd    DateTime?
   zohoVendorId   String?        @unique
   notes          String?
+
+  // GST details. gstin is entered by the user; the rest are filled from a GSTIN
+  // lookup when one is configured (all optional so vendors work without GST).
+  gstin          String?        @unique
+  legalName      String?
+  tradeName      String?
+  gstAddress     String?
+  gstStateCode   String?
+  gstStatus      String?        // ACT | CNL | INA | PRO
+  gstFetchedAt   DateTime?
   createdAt      DateTime       @default(now())
   updatedAt      DateTime       @updatedAt
 

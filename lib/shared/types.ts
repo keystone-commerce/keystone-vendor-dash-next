@@ -101,6 +101,8 @@ export interface VendorDto {
   contractEnd: string | null;
   zohoVendorId: string | null;
   notes: string | null;
+  gstin: string | null;
+  gstAddress: string | null;
   createdAt: string;
   updatedAt: string;
   catalogues?: CatalogueDto[];

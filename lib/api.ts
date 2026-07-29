@@ -64,6 +64,8 @@ export interface CreateVendorInput {
   contractStart?: string;
   contractEnd?: string;
   notes?: string;
+  gstin?: string;
+  gstAddress?: string;
 }
 export type UpdateVendorInput = Partial<CreateVendorInput>;
 
@@ -221,6 +223,10 @@ export interface PoLineItemInput {
   quantity: number;
   rate: number; // rupees
   hsn?: string;
+  gstPercent?: number; // e.g. 18 for 18%
+  itemCode?: string;
+  brand?: string;
+  uom?: string; // unit of measure, e.g. EA, KG, BOX
 }
 export interface CreatePurchaseOrderInput {
   vendorId: string; // Zoho vendor id

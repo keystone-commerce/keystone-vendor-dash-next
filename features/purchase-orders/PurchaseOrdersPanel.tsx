@@ -6,6 +6,7 @@ import { purchaseOrdersApi } from "@/lib/api";
 import { apiError } from "@/lib/api-client";
 import { useAuthStore } from "@/lib/auth-store";
 import { SearchableSelect } from "@/components/SearchableSelect";
+import ProgressButton from "@/components/ui/progress-button";
 
 const STATUS_CHIP: Record<PurchaseOrderStatus, string> = {
   PENDING: "bg-keystone-amber/15 text-keystone-amber",
@@ -125,7 +126,12 @@ export function PurchaseOrdersPanel() {
               onView={() => openPoPdf(po.id)}
               onApprove={() => approve.mutate(po.id)}
               onReject={(reason) => reject.mutate({ id: po.id, reason })}
-              busy={approve.isPending || reject.isPending}
+              // Scope "busy" to the row actually being acted on — the mutation state is
+              // shared, so without checking `variables` every row would show a spinner.
+              busy={
+                (approve.isPending && approve.variables === po.id) ||
+                (reject.isPending && reject.variables?.id === po.id)
+              }
             />
           ))}
         </ul>
@@ -197,18 +203,19 @@ function PoRow({
             </button>
             {isAdmin && po.status === "PENDING" && (
               <>
-                <button
-                  className="btn-primary py-1"
-                  disabled={busy || needsZohoLink}
+                <ProgressButton
+                  label="✓ Approve"
+                  loadingLabel="Approving…"
+                  loading={busy}
+                  disabled={needsZohoLink}
                   title={
                     needsZohoLink
                       ? "Link this vendor to Zoho Books before approving"
                       : "Approve and create in Zoho Books"
                   }
                   onClick={onApprove}
-                >
-                  ✓ Approve
-                </button>
+                  className="!rounded-keystone px-3 py-1 text-sm"
+                />
                 <button className="btn-danger py-1" disabled={busy} onClick={() => setRejecting(true)}>
                   ✕ Reject
                 </button>
