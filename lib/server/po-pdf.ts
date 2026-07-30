@@ -395,7 +395,11 @@ export async function buildPoPdf(input: PoPdfInput): Promise<Buffer> {
       drawRNum(String(li.quantity), cxs[6] - 3, ty, cw[5] - pad);
       draw(fit(li.uom || "EA", cw[6] - pad), cxs[6] + 3, ty, { size: 7.5, color: muted });
       drawRNum(money(li.rate), cxs[8] - 3, ty, cw[7] - pad);
-      drawR(li.gstPercent != null ? `${li.gstPercent}%` : "", cxs[9] - 3, ty, { size: 7.5 });
+      // GST rates are whole or 2-decimal values (0.25, 2.5, 5, 12, 18, 28). Round to
+      // 2dp and drop trailing zeros so a stray high-precision entry can't outgrow the
+      // cell — shrinking alone can't save "18.123456789%".
+      const gstLabel = li.gstPercent != null ? `${Number(li.gstPercent.toFixed(2))}%` : "";
+      drawRNum(gstLabel, cxs[9] - 3, ty, cw[8] - pad);
       drawRNum(money(amt), cxs[10] - 3, ty, cw[9] - pad);
     } else {
       draw(String(i + 1), cxs[0] + 3, ty, { size: 7.5, color: muted });
