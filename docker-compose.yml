@@ -1,0 +1,18 @@
+version: '3.8'
+services:
+  db:
+    image: postgres:15-alpine
+    restart: always
+    environment:
+      POSTGRES_USER: keystone
+      # Override via POSTGRES_PASSWORD in your shell/.env; defaults to a dev value.
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-keystone}
+      POSTGRES_DB: keystone_vendor_dashboard
+    ports:
+      # Bind to localhost only so the dev DB isn't exposed on other interfaces.
+      - '127.0.0.1:5433:5432'
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+volumes:
+  postgres_data:

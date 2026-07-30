@@ -90,22 +90,52 @@ export async function getVendor(id: string) {
   });
 }
 
+/**
+ * Turn a unique-constraint violation (Prisma P2002) into a readable 409 instead of
+ * letting it bubble up as a 500 — `gstin` and `zohoVendorId` are both unique.
+ */
+const FRIENDLY_UNIQUE_FIELD: Record<string, string> = {
+  gstin: "That GSTIN is already assigned to another vendor.",
+  zohoVendorId: "That Zoho vendor is already linked to another vendor.",
+};
+
+function rethrowUniqueViolation(err: unknown): never {
+  const e = err as { code?: string; meta?: { target?: unknown } };
+  if (e?.code === "P2002") {
+    const targets = Array.isArray(e.meta?.target)
+      ? (e.meta?.target as string[])
+      : typeof e.meta?.target === "string"
+        ? [e.meta.target as string]
+        : [];
+    const field = targets.find((t) => FRIENDLY_UNIQUE_FIELD[t]);
+    throw new HttpError(409, field ? FRIENDLY_UNIQUE_FIELD[field] : "That value is already in use.");
+  }
+  throw err;
+}
+
 export async function createVendor(dto: any, actorUserId: string | null) {
-  const vendor = await prisma.vendor.create({
-    data: {
-      name: dto.name,
-      category: dto.category,
-      status: dto.status ?? "ACTIVE",
-      contactName: dto.contactName,
-      phone: dto.phone,
-      email: dto.email,
-      contractValue: dto.contractValue ?? 0,
-      rating: dto.rating ?? 0,
-      contractStart: dto.contractStart ? new Date(dto.contractStart) : null,
-      contractEnd: dto.contractEnd ? new Date(dto.contractEnd) : null,
-      notes: dto.notes,
-    },
-  });
+  let vendor;
+  try {
+    vendor = await prisma.vendor.create({
+      data: {
+        name: dto.name,
+        category: dto.category,
+        status: dto.status ?? "ACTIVE",
+        contactName: dto.contactName,
+        phone: dto.phone,
+        email: dto.email,
+        contractValue: dto.contractValue ?? 0,
+        rating: dto.rating ?? 0,
+        contractStart: dto.contractStart ? new Date(dto.contractStart) : null,
+        contractEnd: dto.contractEnd ? new Date(dto.contractEnd) : null,
+        notes: dto.notes,
+        gstin: dto.gstin || null,
+        gstAddress: dto.gstAddress || null,
+      },
+    });
+  } catch (err) {
+    rethrowUniqueViolation(err);
+  }
   await audit({ userId: actorUserId, action: "VENDOR_CREATE", entityType: "Vendor", entityId: vendor.id, metadata: { name: vendor.name } });
   return serialize(vendor);
 }
@@ -113,14 +143,19 @@ export async function createVendor(dto: any, actorUserId: string | null) {
 export async function updateVendor(id: string, dto: any, actorUserId: string | null) {
   const existing = await prisma.vendor.findUnique({ where: { id } });
   if (!existing) throw new HttpError(404, "Vendor not found.");
-  const vendor = await prisma.vendor.update({
-    where: { id },
-    data: {
-      ...dto,
-      contractStart: dto.contractStart ? new Date(dto.contractStart) : undefined,
-      contractEnd: dto.contractEnd ? new Date(dto.contractEnd) : undefined,
-    },
-  });
+  let vendor;
+  try {
+    vendor = await prisma.vendor.update({
+      where: { id },
+      data: {
+        ...dto,
+        contractStart: dto.contractStart ? new Date(dto.contractStart) : undefined,
+        contractEnd: dto.contractEnd ? new Date(dto.contractEnd) : undefined,
+      },
+    });
+  } catch (err) {
+    rethrowUniqueViolation(err);
+  }
   await audit({ userId: actorUserId, action: "VENDOR_UPDATE", entityType: "Vendor", entityId: id, metadata: { fields: Object.keys(dto) } });
   return serialize(vendor);
 }

@@ -4,9 +4,11 @@ interface Props {
   title: string;
   children: ReactNode;
   onClose: () => void;
+  /** Tailwind max-width class for the dialog. Defaults to a medium width. */
+  maxWidthClass?: string;
 }
 
-export function Modal({ title, children, onClose }: Props) {
+export function Modal({ title, children, onClose, maxWidthClass = "max-w-3xl" }: Props) {
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -29,7 +31,7 @@ export function Modal({ title, children, onClose }: Props) {
           (and its close button) stays visible — important on small laptops. */}
       <div
         ref={ref}
-        className="bg-card border border-border rounded-keystone w-full max-w-3xl my-4 shadow-xl flex flex-col max-h-[calc(100vh-2rem)]"
+        className={`bg-card border border-border rounded-keystone w-full ${maxWidthClass} my-4 shadow-xl flex flex-col max-h-[calc(100vh-2rem)]`}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="px-6 py-4 border-b border-border flex items-center justify-between shrink-0">

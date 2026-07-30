@@ -9,6 +9,7 @@ import {
 } from "@shared";
 import { cataloguesApi, invoicesApi, vendorsApi, zohoApi } from "@/lib/api";
 import { apiError } from "@/lib/api-client";
+import ProgressButton from "@/components/ui/progress-button";
 import { formatDate } from "@/lib/format";
 import { Modal } from "@/components/Modal";
 import { VendorForm } from "./VendorForm";
@@ -216,14 +217,16 @@ function CataloguesTab({
               onChange={(e) => setRenameTo(e.target.value)}
             />
           </label>
-          <button
-            type="button"
-            className="btn-primary"
-            disabled={!uploadFile || upload.isPending}
+          {/* showBar: uploads take long enough that a bar reads better than a spinner. */}
+          <ProgressButton
+            label="Upload to Drive"
+            loadingLabel="Uploading…"
+            loading={upload.isPending}
+            disabled={!uploadFile}
+            showBar
             onClick={() => upload.mutate()}
-          >
-            {upload.isPending ? "Uploading…" : "Upload to Drive"}
-          </button>
+            className="!rounded-keystone h-[38px] text-sm"
+          />
         </div>
       </div>
 
@@ -264,9 +267,13 @@ function CataloguesTab({
           <p className="text-xs text-muted mt-1">Leave products blank to just record the catalogue + link. Prices are in ₹.</p>
         </div>
 
-        <button className="btn-primary w-full" type="submit" disabled={attach.isPending}>
-          {attach.isPending ? "Adding…" : "Add catalogue"}
-        </button>
+        <ProgressButton
+          type="submit"
+          label="Add catalogue"
+          loadingLabel="Adding…"
+          loading={attach.isPending}
+          className="w-full !rounded-keystone text-sm"
+        />
       </form>
     </div>
   );
@@ -452,9 +459,13 @@ function InvoicesTab({
             <option value="OVERDUE">Overdue</option>
           </select>
         </label>
-        <button className="btn-primary md:col-span-4" type="submit" disabled={attach.isPending}>
-          {attach.isPending ? "Adding…" : "Add invoice"}
-        </button>
+        <ProgressButton
+          type="submit"
+          label="Add invoice"
+          loadingLabel="Adding…"
+          loading={attach.isPending}
+          className="md:col-span-4 !rounded-keystone h-[38px] text-sm"
+        />
       </form>
     </div>
   );

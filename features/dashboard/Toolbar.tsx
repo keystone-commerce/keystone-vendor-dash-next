@@ -4,6 +4,8 @@ import { VENDOR_CATEGORIES, VendorCategory, VendorStage } from "@shared";
 import { vendorsApi, VendorQuery } from "@/lib/api";
 import { apiError } from "@/lib/api-client";
 import { SearchableSelect } from "@/components/SearchableSelect";
+import { InteractiveHoverButton } from "@/components/ui/interactive-hover-button";
+import { ShowMore } from "@/components/ui/show-more";
 
 interface Props {
   query: VendorQuery;
@@ -12,7 +14,8 @@ interface Props {
   onGeneratePo: () => void;
   /** Integration status chips (Zoho / Drive), rendered next to the Stage filter. */
   statusSlot?: ReactNode;
-  onToggleStats?: () => void;
+  /** State setter — the ShowMore control expects a Dispatch, not a plain callback. */
+  setStatsOpen?: React.Dispatch<React.SetStateAction<boolean>>;
   statsOpen?: boolean;
 }
 
@@ -28,7 +31,7 @@ export function Toolbar({
   onAddVendor,
   onGeneratePo,
   statusSlot,
-  onToggleStats,
+  setStatsOpen,
   statsOpen,
 }: Props) {
   // Debounce the search box: typing used to fire a DB query on every keystroke.
@@ -87,19 +90,41 @@ export function Toolbar({
         placeholder="All Stages"
       />
       {statusSlot}
-      {onToggleStats && (
-        <button className="btn" onClick={onToggleStats} title="Show dashboard statistics">
-          Stats {statsOpen ? "▲" : "▼"}
-        </button>
+      {/* Stats disclosure. The component defaults to a full-width centred bar, so we
+          force it back to a compact toolbar-sized control (!w-auto beats its
+          w-[calc(100%-40px)]) and match the 38px height / corner radius of its
+          neighbours. */}
+      {setStatsOpen && (
+        <ShowMore
+          expanded={!!statsOpen}
+          onClick={setStatsOpen}
+          label="Stats"
+          className="!w-auto min-h-0 shrink-0 [&>div>button]:h-[38px] [&>div>button]:rounded-keystone [&>div>button]:border-border"
+        />
       )}
       <div className="flex-1" />
       {/* Labels shorten below xl so the row still fits on smaller laptops. */}
       <button className="btn" onClick={onExport} title="Export vendors as CSV">
         Export<span className="hidden xl:inline">&nbsp;CSV</span>
       </button>
-      <button className="btn" onClick={onGeneratePo} title="Generate a purchase order">
-        <span className="hidden xl:inline">Generate&nbsp;</span>PO
-      </button>
+      {/* Animated CTA, sized to line up with the plain .btn neighbours. Two instances
+          swapped by breakpoint because the label lives in a prop and can't shrink with
+          CSS — keeps the toolbar on one line on smaller laptops. */}
+      <InteractiveHoverButton
+        text="PO"
+        onClick={onGeneratePo}
+        title="Generate a purchase order"
+        className="h-[38px] w-[72px] shrink-0 rounded-keystone border-border py-0 text-sm xl:hidden"
+      />
+      <InteractiveHoverButton
+        text="Generate PO"
+        onClick={onGeneratePo}
+        title="Generate a purchase order"
+        // The component parks its dot at left-[20%], which collides with a label this
+        // long — nudge just the dot leftwards (last child div) without touching the
+        // shared component. Hover still expands it from the edge.
+        className="hidden h-[38px] w-[150px] shrink-0 rounded-keystone border-border py-0 text-sm xl:block [&>div:last-child]:left-[7%]"
+      />
       <button className="btn-primary" onClick={onAddVendor} title="Add a vendor">
         +&nbsp;<span className="hidden xl:inline">Add&nbsp;</span>Vendor
       </button>

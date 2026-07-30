@@ -113,6 +113,28 @@ export async function fetchPurchaseOrderPdf(zohoId: string, isRetry = false): Pr
   return Buffer.from(await res.arrayBuffer());
 }
 
+/**
+ * Fetch the official Zoho PO PDF, retrying a few times. Right after a PO is created
+ * Zoho occasionally isn't ready to render the PDF yet, so a single attempt can fail
+ * and (upstream) fall back to our pre-approval PDF. Retrying gives Zoho a moment.
+ */
+export async function fetchPurchaseOrderPdfWithRetry(
+  zohoId: string,
+  attempts = 3,
+  delayMs = 1500,
+): Promise<Buffer> {
+  let lastErr: unknown;
+  for (let i = 0; i < attempts; i++) {
+    try {
+      return await fetchPurchaseOrderPdf(zohoId);
+    } catch (err) {
+      lastErr = err;
+      if (i < attempts - 1) await new Promise((r) => setTimeout(r, delayMs));
+    }
+  }
+  throw lastErr instanceof Error ? lastErr : new Error("Zoho PO PDF fetch failed.");
+}
+
 export async function createInvoice(input: {
   customerId: string;
   date?: string;
@@ -179,11 +201,13 @@ export async function createPurchaseOrder(
   const lineItems = [];
   for (const li of input.lineItems) {
     const itemId = await resolvePurchasableItemId(li.name, li.rate, li.hsn, purchaseAccountId);
+    // NOTE: Zoho stores HSN on the item master (set during item creation above), not
+    // on the purchase-order line. Sending hsn_or_sac here returns 400 "Invalid Element
+    // hsn_or_sac", so it's intentionally omitted from the PO line payload.
     lineItems.push({
       item_id: itemId,
       rate: li.rate,
       quantity: li.quantity,
-      ...(li.hsn ? { hsn_or_sac: li.hsn } : {}),
     });
   }
   const json = await api("POST", "/purchaseorders", {

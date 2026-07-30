@@ -5,6 +5,7 @@ import { VENDOR_CATEGORIES, VendorCategory, VendorDto } from "@shared";
 import { vendorsApi, zohoApi } from "@/lib/api";
 import { apiError } from "@/lib/api-client";
 import { SearchableSelect } from "@/components/SearchableSelect";
+import ProgressButton from "@/components/ui/progress-button";
 
 interface Props {
   vendor?: VendorDto;
@@ -32,6 +33,8 @@ export function VendorForm({ vendor, onClose }: Props) {
     vendor?.contractEnd ? vendor.contractEnd.slice(0, 10) : "",
   );
   const [notes, setNotes] = useState(vendor?.notes ?? "");
+  const [gstin, setGstin] = useState(vendor?.gstin ?? "");
+  const [gstAddress, setGstAddress] = useState(vendor?.gstAddress ?? "");
   const [zohoVendorId, setZohoVendorId] = useState(vendor?.zohoVendorId ?? "");
 
   const mutation = useMutation({
@@ -47,6 +50,10 @@ export function VendorForm({ vendor, onClose }: Props) {
         contractStart: contractStart || undefined,
         contractEnd: contractEnd || undefined,
         notes: notes || undefined,
+        // Send null (not undefined) on clear so an edit can actually remove a
+        // wrongly-entered GSTIN/address — undefined would be omitted from the PATCH.
+        gstin: gstin.trim() ? gstin.trim().toUpperCase() : null,
+        gstAddress: gstAddress.trim() ? gstAddress.trim() : null,
       };
       if (isEdit) {
         const updated = await vendorsApi.update(vendor!.id, payload);
@@ -139,6 +146,25 @@ export function VendorForm({ vendor, onClose }: Props) {
         />
       </label>
       <label className="block">
+        <span className="label">GSTIN</span>
+        <input
+          className="input mt-1 uppercase"
+          placeholder="29ABCDE1234F1Z5"
+          maxLength={15}
+          value={gstin}
+          onChange={(e) => setGstin(e.target.value.toUpperCase())}
+        />
+      </label>
+      <label className="block">
+        <span className="label">Full address</span>
+        <input
+          className="input mt-1"
+          placeholder="Street, city, state, PIN"
+          value={gstAddress}
+          onChange={(e) => setGstAddress(e.target.value)}
+        />
+      </label>
+      <label className="block">
         <span className="label">Contract value (₹)</span>
         <input
           className="input mt-1"
@@ -226,9 +252,13 @@ export function VendorForm({ vendor, onClose }: Props) {
         <button type="button" className="btn" onClick={onClose}>
           Cancel
         </button>
-        <button type="submit" className="btn-primary" disabled={mutation.isPending}>
-          {mutation.isPending ? "Saving…" : isEdit ? "Save changes" : "Add vendor"}
-        </button>
+        <ProgressButton
+          type="submit"
+          label={isEdit ? "Save changes" : "Add vendor"}
+          loadingLabel="Saving…"
+          loading={mutation.isPending}
+          className="!rounded-keystone h-[38px] text-sm"
+        />
       </div>
     </form>
   );

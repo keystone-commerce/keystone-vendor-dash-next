@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import type { VendorDto, ZohoUnmatchedInvoiceDto } from "@shared";
 import { vendorsApi, zohoApi } from "@/lib/api";
 import { apiError } from "@/lib/api-client";
+import ProgressButton from "@/components/ui/progress-button";
 import { formatInr } from "@shared";
 
 /**
@@ -80,13 +81,13 @@ export function ZohoBanner() {
                   : "Invoices sync automatically from Zoho Books."}
               </p>
             </div>
-            <button
-              className="btn-primary whitespace-nowrap"
+            <ProgressButton
+              label="Sync now"
+              loadingLabel="Syncing…"
+              loading={sync.isPending}
               onClick={() => sync.mutate()}
-              disabled={sync.isPending}
-            >
-              {sync.isPending ? "Syncing…" : "Sync now"}
-            </button>
+              className="whitespace-nowrap !rounded-keystone text-sm"
+            />
           </div>
 
           {unmatched.length > 0 && (

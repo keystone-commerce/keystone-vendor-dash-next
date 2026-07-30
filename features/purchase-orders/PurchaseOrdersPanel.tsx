@@ -6,6 +6,7 @@ import { purchaseOrdersApi } from "@/lib/api";
 import { apiError } from "@/lib/api-client";
 import { useAuthStore } from "@/lib/auth-store";
 import { SearchableSelect } from "@/components/SearchableSelect";
+import ProgressButton from "@/components/ui/progress-button";
 
 const STATUS_CHIP: Record<PurchaseOrderStatus, string> = {
   PENDING: "bg-keystone-amber/15 text-keystone-amber",
@@ -55,23 +56,39 @@ export function PurchaseOrdersPanel() {
     return true;
   });
 
+  // Track which PO rows have an in-flight approve/reject. A shared mutation's
+  // `variables` only reflects the latest call, so concurrent actions on different
+  // rows could clear each other's busy state — this Set scopes it per row.
+  const [pendingIds, setPendingIds] = useState<Set<string>>(new Set());
+  const markPending = (id: string, on: boolean) =>
+    setPendingIds((prev) => {
+      const next = new Set(prev);
+      if (on) next.add(id);
+      else next.delete(id);
+      return next;
+    });
+
   const approve = useMutation({
     mutationFn: (id: string) => purchaseOrdersApi.approve(id),
+    onMutate: (id) => markPending(id, true),
     onSuccess: (po) => {
       toast.success(`Approved — created in Zoho as ${po.poNumber || po.zohoId}.`);
       qc.invalidateQueries();
     },
     onError: (err) => toast.error(apiError(err, "Approve failed")),
+    onSettled: (_data, _err, id) => markPending(id, false),
   });
 
   const reject = useMutation({
     mutationFn: ({ id, reason }: { id: string; reason: string }) =>
       purchaseOrdersApi.reject(id, reason),
+    onMutate: ({ id }) => markPending(id, true),
     onSuccess: () => {
       toast("Purchase order rejected.");
       qc.invalidateQueries();
     },
     onError: (err) => toast.error(apiError(err, "Reject failed")),
+    onSettled: (_data, _err, { id }) => markPending(id, false),
   });
 
   if (pos.length === 0) return null;
@@ -125,7 +142,9 @@ export function PurchaseOrdersPanel() {
               onView={() => openPoPdf(po.id)}
               onApprove={() => approve.mutate(po.id)}
               onReject={(reason) => reject.mutate({ id: po.id, reason })}
-              busy={approve.isPending || reject.isPending}
+              // Per-row busy state (see pendingIds) — robust to concurrent actions
+              // on multiple rows, unlike the shared mutation.variables.
+              busy={pendingIds.has(po.id)}
             />
           ))}
         </ul>
@@ -197,18 +216,19 @@ function PoRow({
             </button>
             {isAdmin && po.status === "PENDING" && (
               <>
-                <button
-                  className="btn-primary py-1"
-                  disabled={busy || needsZohoLink}
+                <ProgressButton
+                  label="✓ Approve"
+                  loadingLabel="Approving…"
+                  loading={busy}
+                  disabled={needsZohoLink}
                   title={
                     needsZohoLink
                       ? "Link this vendor to Zoho Books before approving"
                       : "Approve and create in Zoho Books"
                   }
                   onClick={onApprove}
-                >
-                  ✓ Approve
-                </button>
+                  className="!rounded-keystone px-3 py-1 text-sm"
+                />
                 <button className="btn-danger py-1" disabled={busy} onClick={() => setRejecting(true)}>
                   ✕ Reject
                 </button>

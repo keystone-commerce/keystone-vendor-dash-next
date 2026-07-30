@@ -3,6 +3,7 @@ import { toast } from "sonner";
 import { useAuthStore } from "@/lib/auth-store";
 import { authApi } from "@/lib/api";
 import { TeamModal } from "@/features/team/TeamModal";
+import { AnimatedThemeToggle } from "@/components/ui/animated-theme-toggle";
 
 export function Header() {
   const user = useAuthStore((s) => s.user);
@@ -52,6 +53,7 @@ export function Header() {
               <div className="text-[10px] uppercase tracking-wider text-muted">{user.role}</div>
             </div>
           )}
+          <AnimatedThemeToggle className="h-[38px] !rounded-keystone border-border text-ink" />
           {user?.role === "ADMIN" && (
             <button className="btn" onClick={() => setTeamOpen(true)}>
               Team

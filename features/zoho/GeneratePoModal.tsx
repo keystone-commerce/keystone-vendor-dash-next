@@ -5,6 +5,7 @@ import type { VendorDto } from "@shared";
 import { Modal } from "@/components/Modal";
 import { vendorsApi, purchaseOrdersApi, PoLineItemInput } from "@/lib/api";
 import { apiError } from "@/lib/api-client";
+import ProgressButton from "@/components/ui/progress-button";
 import { formatInr } from "@/lib/format";
 
 interface Props {
@@ -14,13 +15,32 @@ interface Props {
 }
 
 interface LineRow {
+  itemCode: string;
   name: string;
-  quantity: number;
-  rate: number; // rupees
+  brand: string;
   hsn: string;
+  quantity: number;
+  uom: string;
+  rate: number; // rupees
+  gstPercent: number; // e.g. 18
 }
 
-const emptyRow = (): LineRow => ({ name: "", quantity: 1, rate: 0, hsn: "" });
+const emptyRow = (): LineRow => ({
+  itemCode: "",
+  name: "",
+  brand: "",
+  hsn: "",
+  quantity: 1,
+  uom: "EA",
+  rate: 0,
+  gstPercent: 18,
+});
+
+/** Coerce a form value to a safe, non-negative number (NaN/empty/negative -> 0). */
+const num = (v: unknown): number => {
+  const n = Number(v);
+  return Number.isFinite(n) && n > 0 ? n : 0;
+};
 
 export function GeneratePoModal({ onClose, initialVendorId }: Props) {
   const { data: vendorsPage } = useQuery({
@@ -56,10 +76,14 @@ export function GeneratePoModal({ onClose, initialVendorId }: Props) {
     const it = catalogueItems.find((x) => x.id === itemId);
     if (!it) return;
     const line: LineRow = {
+      itemCode: "",
       name: it.name,
-      quantity: 1,
-      rate: Math.round(it.unitPrice) / 100,
+      brand: "",
       hsn: it.hsn ?? "",
+      quantity: 1,
+      uom: "EA",
+      rate: Math.round(it.unitPrice) / 100,
+      gstPercent: 18,
     };
     setRows((rs) => {
       const onlyBlank = rs.length === 1 && !rs[0].name.trim() && !rs[0].rate;
@@ -71,19 +95,35 @@ export function GeneratePoModal({ onClose, initialVendorId }: Props) {
     () => rows.reduce((sum, r) => sum + (Number(r.rate) || 0) * (Number(r.quantity) || 0), 0),
     [rows],
   );
+  const gstTotal = useMemo(
+    () =>
+      rows.reduce(
+        (sum, r) =>
+          sum + (Number(r.rate) || 0) * (Number(r.quantity) || 0) * ((Number(r.gstPercent) || 0) / 100),
+        0,
+      ),
+    [rows],
+  );
 
   const updateRow = (i: number, patch: Partial<LineRow>) =>
     setRows((rs) => rs.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
 
   const create = useMutation({
     mutationFn: () => {
+      // Only complete rows (name + positive qty + positive rate) are submitted, and
+      // every number is coerced through `num()` so a cleared/partial field can never
+      // send NaN (which serializes to null) to the server.
       const lineItems: PoLineItemInput[] = rows
-        .filter((r) => r.name.trim())
+        .filter((r) => r.name.trim() && num(r.quantity) > 0 && num(r.rate) > 0)
         .map((r) => ({
           name: r.name.trim(),
-          quantity: Number(r.quantity),
-          rate: Number(r.rate),
+          quantity: num(r.quantity),
+          rate: num(r.rate),
           hsn: r.hsn.trim() || undefined,
+          gstPercent: num(r.gstPercent),
+          itemCode: r.itemCode.trim() || undefined,
+          brand: r.brand.trim() || undefined,
+          uom: r.uom.trim() || undefined,
         }));
       // Submit for approval — the PO is created in the dashboard as PENDING. It only
       // goes to Zoho + the vendor after an Admin approves it.
@@ -101,10 +141,11 @@ export function GeneratePoModal({ onClose, initialVendorId }: Props) {
   });
 
   const canSubmit =
-    dashboardVendorId.length > 0 && rows.some((r) => r.name.trim() && Number(r.rate) > 0);
+    dashboardVendorId.length > 0 &&
+    rows.some((r) => r.name.trim() && num(r.quantity) > 0 && num(r.rate) > 0);
 
   return (
-    <Modal title="Submit Purchase Order for approval" onClose={onClose}>
+    <Modal title="Submit Purchase Order for approval" onClose={onClose} maxWidthClass="max-w-6xl">
       <form
         className="space-y-4"
         onSubmit={(e) => {
@@ -185,49 +226,37 @@ export function GeneratePoModal({ onClose, initialVendorId }: Props) {
               + Add item
             </button>
           </div>
-          <div className="space-y-2">
-            {/* header */}
-            <div className="hidden md:grid grid-cols-[1fr_90px_120px_120px_32px] gap-2 text-xs text-muted px-1">
-              <span>Product name</span>
-              <span>Quantity</span>
-              <span>Price (₹)</span>
+          {/* One horizontal row per item — all columns visible at once in the wide modal. */}
+          <div className="space-y-1.5">
+            {/* header labels (shown once) */}
+            <div className="grid grid-cols-[90px_minmax(160px,1fr)_1fr_80px_60px_64px_100px_70px_40px] gap-2 px-1 text-[10px] uppercase tracking-wide text-muted">
+              <span>Item Code</span>
+              <span>Product Description</span>
+              <span>Brand</span>
               <span>HSN</span>
+              <span>Qty</span>
+              <span>UOM</span>
+              <span>Price (₹)</span>
+              <span>GST %</span>
               <span />
             </div>
             {rows.map((r, i) => (
-              <div key={i} className="grid grid-cols-2 md:grid-cols-[1fr_90px_120px_120px_32px] gap-2">
-                <input
-                  className="input py-1"
-                  placeholder="Product name"
-                  value={r.name}
-                  onChange={(e) => updateRow(i, { name: e.target.value })}
-                />
-                <input
-                  className="input py-1"
-                  type="number"
-                  min={0}
-                  placeholder="Qty"
-                  value={r.quantity}
-                  onChange={(e) => updateRow(i, { quantity: Number(e.target.value) })}
-                />
-                <input
-                  className="input py-1"
-                  type="number"
-                  min={0}
-                  placeholder="Price"
-                  value={r.rate}
-                  onChange={(e) => updateRow(i, { rate: Number(e.target.value) })}
-                />
-                <input
-                  className="input py-1"
-                  placeholder="HSN"
-                  value={r.hsn}
-                  onChange={(e) => updateRow(i, { hsn: e.target.value })}
-                />
+              <div
+                key={i}
+                className="grid grid-cols-[90px_minmax(160px,1fr)_1fr_80px_60px_64px_100px_70px_40px] gap-2 items-center"
+              >
+                <input className="input py-1" placeholder="Code" value={r.itemCode} onChange={(e) => updateRow(i, { itemCode: e.target.value })} />
+                <input className="input py-1" placeholder="Product name" value={r.name} onChange={(e) => updateRow(i, { name: e.target.value })} />
+                <input className="input py-1" placeholder="Brand" value={r.brand} onChange={(e) => updateRow(i, { brand: e.target.value })} />
+                <input className="input py-1" placeholder="HSN" value={r.hsn} onChange={(e) => updateRow(i, { hsn: e.target.value })} />
+                <input className="input py-1" type="number" min={0} value={r.quantity} onChange={(e) => updateRow(i, { quantity: Number(e.target.value) })} />
+                <input className="input py-1" placeholder="EA" value={r.uom} onChange={(e) => updateRow(i, { uom: e.target.value })} />
+                <input className="input py-1" type="number" min={0} value={r.rate} onChange={(e) => updateRow(i, { rate: Number(e.target.value) })} />
+                <input className="input py-1" type="number" min={0} max={28} value={r.gstPercent} onChange={(e) => updateRow(i, { gstPercent: Number(e.target.value) })} />
                 <button
                   type="button"
-                  className="btn-danger py-1 px-2"
-                  title="Remove"
+                  className="btn-danger py-1 px-0"
+                  title="Remove item"
                   disabled={rows.length === 1}
                   onClick={() => setRows((rs) => rs.filter((_, idx) => idx !== i))}
                 >
@@ -240,15 +269,30 @@ export function GeneratePoModal({ onClose, initialVendorId }: Props) {
 
         <div className="flex items-center justify-between pt-3 border-t border-border">
           <span className="text-sm font-medium">
-            Total: <span className="tabular-nums">{formatInr(total * 100)}</span>
+            Subtotal <span className="tabular-nums">{formatInr(total * 100)}</span>
+            {gstTotal > 0 && (
+              <span className="text-muted font-normal">
+                {" "}
+                + GST <span className="tabular-nums">{formatInr(gstTotal * 100)}</span>
+              </span>
+            )}
+            {"  ·  "}Total{" "}
+            <span className="tabular-nums text-orange-deep">{formatInr((total + gstTotal) * 100)}</span>
           </span>
           <div className="flex gap-2">
             <button type="button" className="btn" onClick={onClose}>
               Cancel
             </button>
-            <button type="submit" className="btn-primary" disabled={!canSubmit || create.isPending}>
-              {create.isPending ? "Submitting…" : "Submit for approval"}
-            </button>
+            {/* loading is driven by the real mutation, so the spinner tracks the
+                actual submit rather than a timer. */}
+            <ProgressButton
+              type="submit"
+              label="Submit for approval"
+              loadingLabel="Submitting…"
+              loading={create.isPending}
+              disabled={!canSubmit}
+              className="!rounded-keystone h-[38px] text-sm"
+            />
           </div>
         </div>
       </form>

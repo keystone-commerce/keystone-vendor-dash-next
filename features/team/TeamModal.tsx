@@ -6,6 +6,7 @@ import { usersApi } from "@/lib/api";
 import { apiError } from "@/lib/api-client";
 import { useAuthStore } from "@/lib/auth-store";
 import { Modal } from "@/components/Modal";
+import ProgressButton from "@/components/ui/progress-button";
 
 const ROLE_LABELS: Record<UserRole, string> = {
   ADMIN: "Admin",
@@ -94,9 +95,13 @@ export function TeamModal({ onClose }: { onClose: () => void }) {
               <option value="VIEWER">Viewer</option>
             </select>
           </label>
-          <button type="submit" className="btn-primary" disabled={add.isPending}>
-            {add.isPending ? "Adding…" : "Add"}
-          </button>
+          <ProgressButton
+            type="submit"
+            label="Add"
+            loadingLabel="Adding…"
+            loading={add.isPending}
+            className="!rounded-keystone h-[38px] text-sm"
+          />
         </form>
 
         {/* Member list */}

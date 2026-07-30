@@ -53,7 +53,7 @@ export function DashboardPage() {
           onAddVendor={() => setCreatingVendor(true)}
           onGeneratePo={() => setGeneratingPo(true)}
           statsOpen={statsOpen}
-          onToggleStats={() => setStatsOpen((v) => !v)}
+          setStatsOpen={setStatsOpen}
           statusSlot={
             <>
               <ZohoBanner />
