@@ -37,11 +37,15 @@ export interface PoPdfLine {
   gstPercent?: number;
 }
 
+export type PoPdfStatus = "PENDING" | "APPROVED" | "REJECTED";
+
 export interface PoPdfInput {
   vendorName: string;
   poNumber?: string | null;
   createdAt?: Date;
   vendorCode?: string | null;
+  /** Drives the status line. Defaults to PENDING (pre-approval document). */
+  status?: PoPdfStatus;
   lineItems: PoPdfLine[];
   /** Supplier details for the "Supplier Details" block (all optional). */
   supplier?: {
@@ -127,6 +131,8 @@ export async function buildPoPdf(input: PoPdfInput): Promise<Buffer> {
   const muted = rgb(0.4, 0.4, 0.4);
   const grid = rgb(0.72, 0.72, 0.72);
   const bandFill = rgb(0.96, 0.9, 0.83);
+  const green = rgb(0.02, 0.59, 0.41); // approved
+  const red = rgb(0.86, 0.15, 0.15); // rejected
 
   const W = 595,
     H = 842,
@@ -334,9 +340,10 @@ export async function buildPoPdf(input: PoPdfInput): Promise<Buffer> {
 
   let total = 0;
   let taxTotal = 0;
-  const MIN_ROWS = 5;
-  const rows = input.lineItems.length;
-  const renderCount = Math.max(rows, MIN_ROWS);
+  // One row per line item — the table grows/shrinks with the order and everything
+  // below it (Commercial Summary, terms, signatures) flows up or down accordingly.
+  // Guard at 1 so an empty PO still renders a valid table body.
+  const renderCount = Math.max(input.lineItems.length, 1);
   for (let i = 0; i < renderCount; i++) {
     ensure(rowH + 4);
     if (y === H - M) drawTableHead(); // header repeated after a page break
@@ -366,6 +373,12 @@ export async function buildPoPdf(input: PoPdfInput): Promise<Buffer> {
     y -= rowH;
   }
   y -= 8;
+
+  // The per-row ensure() above only reserves one row at a time, so certain item
+  // counts leave `y` near the bottom margin and the summary would spill off the
+  // printable area. Reserve the whole block up front: section header + up to four
+  // summary rows (Subtotal, CGST, SGST/IGST, Grand Total) + the tax note and status.
+  ensure(14 + 4 * rowH + 40);
 
   // ---- Commercial Summary ----
   sectionHeader("Commercial Summary");
@@ -410,8 +423,17 @@ export async function buildPoPdf(input: PoPdfInput): Promise<Buffer> {
   }
   y -= 14;
 
-  // Pending banner (this PDF is a pre-approval document).
-  draw(`Status: PENDING APPROVAL`, M, y, { size: 8, color: orange, font: bold });
+  // Status line — same document before and after approval, only this changes.
+  const status = input.status ?? "PENDING";
+  const statusLabel =
+    status === "APPROVED"
+      ? "APPROVED"
+      : status === "REJECTED"
+        ? "REJECTED"
+        : "PENDING APPROVAL";
+  const statusColor =
+    status === "APPROVED" ? green : status === "REJECTED" ? red : orange;
+  draw(`Status: ${statusLabel}`, M, y, { size: 8, color: statusColor, font: bold });
   y -= 16;
 
   // ---- Standard Terms & Conditions ----
