@@ -374,6 +374,12 @@ export async function buildPoPdf(input: PoPdfInput): Promise<Buffer> {
   }
   y -= 8;
 
+  // The per-row ensure() above only reserves one row at a time, so certain item
+  // counts leave `y` near the bottom margin and the summary would spill off the
+  // printable area. Reserve the whole block up front: section header + up to four
+  // summary rows (Subtotal, CGST, SGST/IGST, Grand Total) + the tax note and status.
+  ensure(14 + 4 * rowH + 40);
+
   // ---- Commercial Summary ----
   sectionHeader("Commercial Summary");
 
