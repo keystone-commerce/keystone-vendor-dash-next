@@ -9,6 +9,7 @@ import {
 } from "@shared";
 import { cataloguesApi, invoicesApi, vendorsApi, zohoApi } from "@/lib/api";
 import { apiError } from "@/lib/api-client";
+import { useAuthStore } from "@/lib/auth-store";
 import ProgressButton from "@/components/ui/progress-button";
 import { formatDate } from "@/lib/format";
 import { Modal } from "@/components/Modal";
@@ -297,6 +298,9 @@ function InvoicesTab({
   invoices: InvoiceDto[];
 }) {
   const qc = useQueryClient();
+  // "Open in Zoho" is Admin-only: it deep-links into Zoho Books, which non-admins
+  // generally can't access (they'd just land on a Zoho login page).
+  const isAdmin = useAuthStore((s) => s.user?.role) === "ADMIN";
   const [invoiceNumber, setInvoiceNumber] = useState("");
   const [amount, setAmount] = useState<number>(0);
   const [status, setStatus] = useState<InvoiceStatus>("UNPAID");
@@ -406,8 +410,14 @@ function InvoicesTab({
                   View PDF
                 </button>
               )}
-              {inv.viewUrl && (
-                <a className="btn py-1" href={inv.viewUrl} target="_blank" rel="noreferrer">
+              {isAdmin && inv.viewUrl && (
+                <a
+                  className="btn py-1"
+                  href={inv.viewUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  title="Open this bill in Zoho Books"
+                >
                   Open ↗
                 </a>
               )}

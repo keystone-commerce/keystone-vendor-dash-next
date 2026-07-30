@@ -3,8 +3,7 @@ import { HttpError } from "./auth";
 import { audit } from "./audit";
 import { sendMail } from "./mail";
 import { createZohoPurchaseOrder } from "./zoho";
-import { buildPoPdf } from "./po-pdf";
-import { fetchPurchaseOrderPdfWithRetry } from "./zoho/client";
+import { buildPoPdf, type PoPdfStatus } from "./po-pdf";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -31,16 +30,30 @@ function serialize(po: any) {
   };
 }
 
-/** Our Keystone-format PDF built straight from a PO record (no Zoho round-trip). */
+/**
+ * Our Keystone-format PDF built straight from a PO record. This is the document used
+ * everywhere (View + emails, before and after approval) — same layout throughout, with
+ * only the status line and the assigned PO number changing once approved.
+ */
 function buildKeystonePoPdf(
-  po: { vendor: any; poNumber: string | null; createdAt: Date; lineItems: unknown },
-  poNumberOverride?: string | null,
+  po: {
+    vendor: any;
+    poNumber: string | null;
+    createdAt: Date;
+    lineItems: unknown;
+    status?: string;
+  },
+  overrides?: { poNumber?: string | null; status?: PoPdfStatus },
 ): Promise<Buffer> {
+  const status =
+    overrides?.status ??
+    (po.status === "APPROVED" || po.status === "REJECTED" ? po.status : "PENDING");
   return buildPoPdf({
     vendorName: po.vendor.name,
-    poNumber: poNumberOverride ?? po.poNumber,
+    poNumber: overrides?.poNumber ?? po.poNumber,
     createdAt: po.createdAt,
     vendorCode: po.vendor.zohoVendorId || po.vendor.id,
+    status,
     lineItems: (po.lineItems as any[]) ?? [],
     supplier: {
       address: po.vendor.gstAddress,
@@ -53,23 +66,13 @@ function buildKeystonePoPdf(
 }
 
 /**
- * PDF for a purchase order. Once approved and created in Zoho, View shows the OFFICIAL
- * Zoho PO PDF (with a short retry, since Zoho can lag right after creation). Pending
- * POs — and any case where Zoho can't produce the PDF — use our Keystone-format PDF.
+ * PDF for a purchase order — always our Keystone-format document, so the branded
+ * template is what everyone sees (Zoho's own plain PDF is never surfaced). The status
+ * line reflects the PO's current state.
  */
 export async function getPurchaseOrderPdf(id: string): Promise<Buffer> {
   const po = await prisma.purchaseOrder.findUnique({ where: { id }, include: { vendor: true } });
   if (!po) throw new HttpError(404, "Purchase order not found.");
-
-  if (po.zohoId && process.env.ZOHO_ENABLED === "true") {
-    try {
-      return await fetchPurchaseOrderPdfWithRetry(po.zohoId);
-    } catch (err) {
-      // Zoho unavailable — fall back to our generated PDF so View still works.
-      console.warn(`[po] Zoho PDF unavailable for ${id}, using generated: ${(err as Error).message}`);
-    }
-  }
-
   return buildKeystonePoPdf(po);
 }
 
@@ -138,20 +141,12 @@ export async function createPurchaseOrder(
     // can't be built, still send the email without the attachment.
     let attachments;
     try {
-      const pdf = await buildPoPdf({
-        vendorName: vendor.name,
-        poNumber: po.poNumber,
-        createdAt: po.createdAt,
-        vendorCode: vendor.zohoVendorId || vendor.id,
-        lineItems: dto.lineItems,
-        supplier: {
-          address: vendor.gstAddress,
-          gstin: vendor.gstin,
-          contactName: vendor.contactName,
-          email: vendor.email,
-          phone: vendor.phone,
-        },
-      });
+      // Same builder the approved PDF uses, so the approver reviews the exact
+      // document that later goes out — only the status line differs.
+      const pdf = await buildKeystonePoPdf(
+        { vendor, poNumber: po.poNumber, createdAt: po.createdAt, lineItems: dto.lineItems },
+        { status: "PENDING" },
+      );
       const fileLabel = (po.poNumber || `PO-${po.id.slice(0, 8)}`).replace(/[^\w.-]/g, "_");
       attachments = [{ filename: `${fileLabel}.pdf`, content: pdf, contentType: "application/pdf" }];
     } catch (err) {
@@ -212,24 +207,19 @@ export async function approvePurchaseOrder(id: string, actorUserId: string | nul
   // one from Zoho's own email). Only if Zoho can't produce it do we fall back to our
   // generated PDF — so the submitter gets the real approved document, not the
   // pre-approval one. Soft-fail: still send the message if no PDF can load.
+  // Our Keystone-format PDF, now stamped APPROVED and carrying the Zoho-assigned PO
+  // number — the same document the approver reviewed, so nobody sees a different
+  // template after approval. Soft-fail: still send the emails if the PDF can't build.
   const label = (result.poNumber || po.poNumber || `PO-${id.slice(0, 8)}`).replace(/[^\w.-]/g, "_");
   let attachments;
   try {
-    // Prefer the official Zoho PDF; on failure build our Keystone PDF DIRECTLY —
-    // going back through getPurchaseOrderPdf would re-run the Zoho retry loop
-    // (zohoId is now persisted), doubling approval latency.
-    const pdf = result.zohoId
-      ? await fetchPurchaseOrderPdfWithRetry(result.zohoId)
-      : await buildKeystonePoPdf(po, result.poNumber);
+    const pdf = await buildKeystonePoPdf(po, {
+      poNumber: result.poNumber || po.poNumber,
+      status: "APPROVED",
+    });
     attachments = [{ filename: `${label}.pdf`, content: pdf, contentType: "application/pdf" }];
   } catch (err) {
-    console.warn(`[po] Zoho PDF unavailable for ${id}, falling back to generated: ${(err as Error).message}`);
-    try {
-      const pdf = await buildKeystonePoPdf(po, result.poNumber);
-      attachments = [{ filename: `${label}.pdf`, content: pdf, contentType: "application/pdf" }];
-    } catch (err2) {
-      console.warn(`[po] no PDF at all for ${id}: ${(err2 as Error).message}`);
-    }
+    console.warn(`[po] approved PDF unavailable for ${id}: ${(err as Error).message}`);
   }
   // Email the submitter (the member who raised the PO).
   await notifyCreator(
