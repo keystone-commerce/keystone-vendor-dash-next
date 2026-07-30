@@ -31,6 +31,27 @@ function serialize(po: any) {
   };
 }
 
+/** Our Keystone-format PDF built straight from a PO record (no Zoho round-trip). */
+function buildKeystonePoPdf(
+  po: { vendor: any; poNumber: string | null; createdAt: Date; lineItems: unknown },
+  poNumberOverride?: string | null,
+): Promise<Buffer> {
+  return buildPoPdf({
+    vendorName: po.vendor.name,
+    poNumber: poNumberOverride ?? po.poNumber,
+    createdAt: po.createdAt,
+    vendorCode: po.vendor.zohoVendorId || po.vendor.id,
+    lineItems: (po.lineItems as any[]) ?? [],
+    supplier: {
+      address: po.vendor.gstAddress,
+      gstin: po.vendor.gstin,
+      contactName: po.vendor.contactName,
+      email: po.vendor.email,
+      phone: po.vendor.phone,
+    },
+  });
+}
+
 /**
  * PDF for a purchase order. Once approved and created in Zoho, View shows the OFFICIAL
  * Zoho PO PDF (with a short retry, since Zoho can lag right after creation). Pending
@@ -49,20 +70,7 @@ export async function getPurchaseOrderPdf(id: string): Promise<Buffer> {
     }
   }
 
-  return buildPoPdf({
-    vendorName: po.vendor.name,
-    poNumber: po.poNumber,
-    createdAt: po.createdAt,
-    vendorCode: po.vendor.zohoVendorId || po.vendor.id,
-    lineItems: (po.lineItems as any[]) ?? [],
-    supplier: {
-      address: po.vendor.gstAddress,
-      gstin: po.vendor.gstin,
-      contactName: po.vendor.contactName,
-      email: po.vendor.email,
-      phone: po.vendor.phone,
-    },
-  });
+  return buildKeystonePoPdf(po);
 }
 
 /**
@@ -207,14 +215,17 @@ export async function approvePurchaseOrder(id: string, actorUserId: string | nul
   const label = (result.poNumber || po.poNumber || `PO-${id.slice(0, 8)}`).replace(/[^\w.-]/g, "_");
   let attachments;
   try {
+    // Prefer the official Zoho PDF; on failure build our Keystone PDF DIRECTLY —
+    // going back through getPurchaseOrderPdf would re-run the Zoho retry loop
+    // (zohoId is now persisted), doubling approval latency.
     const pdf = result.zohoId
       ? await fetchPurchaseOrderPdfWithRetry(result.zohoId)
-      : await getPurchaseOrderPdf(id);
+      : await buildKeystonePoPdf(po, result.poNumber);
     attachments = [{ filename: `${label}.pdf`, content: pdf, contentType: "application/pdf" }];
   } catch (err) {
     console.warn(`[po] Zoho PDF unavailable for ${id}, falling back to generated: ${(err as Error).message}`);
     try {
-      const pdf = await getPurchaseOrderPdf(id);
+      const pdf = await buildKeystonePoPdf(po, result.poNumber);
       attachments = [{ filename: `${label}.pdf`, content: pdf, contentType: "application/pdf" }];
     } catch (err2) {
       console.warn(`[po] no PDF at all for ${id}: ${(err2 as Error).message}`);

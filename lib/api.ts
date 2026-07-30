@@ -64,8 +64,8 @@ export interface CreateVendorInput {
   contractStart?: string;
   contractEnd?: string;
   notes?: string;
-  gstin?: string;
-  gstAddress?: string;
+  gstin?: string | null; // null explicitly clears it on edit
+  gstAddress?: string | null;
 }
 export type UpdateVendorInput = Partial<CreateVendorInput>;
 

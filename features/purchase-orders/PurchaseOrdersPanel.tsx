@@ -56,23 +56,39 @@ export function PurchaseOrdersPanel() {
     return true;
   });
 
+  // Track which PO rows have an in-flight approve/reject. A shared mutation's
+  // `variables` only reflects the latest call, so concurrent actions on different
+  // rows could clear each other's busy state — this Set scopes it per row.
+  const [pendingIds, setPendingIds] = useState<Set<string>>(new Set());
+  const markPending = (id: string, on: boolean) =>
+    setPendingIds((prev) => {
+      const next = new Set(prev);
+      if (on) next.add(id);
+      else next.delete(id);
+      return next;
+    });
+
   const approve = useMutation({
     mutationFn: (id: string) => purchaseOrdersApi.approve(id),
+    onMutate: (id) => markPending(id, true),
     onSuccess: (po) => {
       toast.success(`Approved — created in Zoho as ${po.poNumber || po.zohoId}.`);
       qc.invalidateQueries();
     },
     onError: (err) => toast.error(apiError(err, "Approve failed")),
+    onSettled: (_data, _err, id) => markPending(id, false),
   });
 
   const reject = useMutation({
     mutationFn: ({ id, reason }: { id: string; reason: string }) =>
       purchaseOrdersApi.reject(id, reason),
+    onMutate: ({ id }) => markPending(id, true),
     onSuccess: () => {
       toast("Purchase order rejected.");
       qc.invalidateQueries();
     },
     onError: (err) => toast.error(apiError(err, "Reject failed")),
+    onSettled: (_data, _err, { id }) => markPending(id, false),
   });
 
   if (pos.length === 0) return null;
@@ -126,12 +142,9 @@ export function PurchaseOrdersPanel() {
               onView={() => openPoPdf(po.id)}
               onApprove={() => approve.mutate(po.id)}
               onReject={(reason) => reject.mutate({ id: po.id, reason })}
-              // Scope "busy" to the row actually being acted on — the mutation state is
-              // shared, so without checking `variables` every row would show a spinner.
-              busy={
-                (approve.isPending && approve.variables === po.id) ||
-                (reject.isPending && reject.variables?.id === po.id)
-              }
+              // Per-row busy state (see pendingIds) — robust to concurrent actions
+              // on multiple rows, unlike the shared mutation.variables.
+              busy={pendingIds.has(po.id)}
             />
           ))}
         </ul>

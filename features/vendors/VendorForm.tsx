@@ -50,8 +50,10 @@ export function VendorForm({ vendor, onClose }: Props) {
         contractStart: contractStart || undefined,
         contractEnd: contractEnd || undefined,
         notes: notes || undefined,
-        gstin: gstin.trim().toUpperCase() || undefined,
-        gstAddress: gstAddress.trim() || undefined,
+        // Send null (not undefined) on clear so an edit can actually remove a
+        // wrongly-entered GSTIN/address — undefined would be omitted from the PATCH.
+        gstin: gstin.trim() ? gstin.trim().toUpperCase() : null,
+        gstAddress: gstAddress.trim() ? gstAddress.trim() : null,
       };
       if (isEdit) {
         const updated = await vendorsApi.update(vendor!.id, payload);

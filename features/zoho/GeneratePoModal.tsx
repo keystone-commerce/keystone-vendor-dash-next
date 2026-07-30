@@ -36,6 +36,12 @@ const emptyRow = (): LineRow => ({
   gstPercent: 18,
 });
 
+/** Coerce a form value to a safe, non-negative number (NaN/empty/negative -> 0). */
+const num = (v: unknown): number => {
+  const n = Number(v);
+  return Number.isFinite(n) && n > 0 ? n : 0;
+};
+
 export function GeneratePoModal({ onClose, initialVendorId }: Props) {
   const { data: vendorsPage } = useQuery({
     queryKey: ["vendors", "po-picker"],
@@ -104,14 +110,17 @@ export function GeneratePoModal({ onClose, initialVendorId }: Props) {
 
   const create = useMutation({
     mutationFn: () => {
+      // Only complete rows (name + positive qty + positive rate) are submitted, and
+      // every number is coerced through `num()` so a cleared/partial field can never
+      // send NaN (which serializes to null) to the server.
       const lineItems: PoLineItemInput[] = rows
-        .filter((r) => r.name.trim())
+        .filter((r) => r.name.trim() && num(r.quantity) > 0 && num(r.rate) > 0)
         .map((r) => ({
           name: r.name.trim(),
-          quantity: Number(r.quantity),
-          rate: Number(r.rate),
+          quantity: num(r.quantity),
+          rate: num(r.rate),
           hsn: r.hsn.trim() || undefined,
-          gstPercent: Number(r.gstPercent) || 0,
+          gstPercent: num(r.gstPercent),
           itemCode: r.itemCode.trim() || undefined,
           brand: r.brand.trim() || undefined,
           uom: r.uom.trim() || undefined,
@@ -132,7 +141,8 @@ export function GeneratePoModal({ onClose, initialVendorId }: Props) {
   });
 
   const canSubmit =
-    dashboardVendorId.length > 0 && rows.some((r) => r.name.trim() && Number(r.rate) > 0);
+    dashboardVendorId.length > 0 &&
+    rows.some((r) => r.name.trim() && num(r.quantity) > 0 && num(r.rate) > 0);
 
   return (
     <Modal title="Submit Purchase Order for approval" onClose={onClose} maxWidthClass="max-w-6xl">

@@ -60,10 +60,13 @@ const ascii = (s: string) =>
     .replace(/[‘’]/g, "'")
     .replace(/[“”]/g, '"')
     .replace(/[–—]/g, "-")
+    .replace(/…/g, "...")
     .replace(/₹/g, "Rs.")
     .replace(/[^\x20-\x7e]/g, "");
 
-const money = (n: number) => "Rs. " + Math.round(n ?? 0).toLocaleString("en-IN");
+const money = (n: number) =>
+  "Rs. " +
+  (n ?? 0).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 // Keystone's own fixed details (from the official template).
 const BILL_TO = [
@@ -345,7 +348,7 @@ export async function buildPoPdf(input: PoPdfInput): Promise<Buffer> {
       const amt = (li.rate || 0) * (li.quantity || 0);
       total += amt;
       taxTotal += amt * ((li.gstPercent || 0) / 100);
-      const desc = li.name.length > 34 ? li.name.slice(0, 33) + "…" : li.name;
+      const desc = li.name.length > 34 ? li.name.slice(0, 31) + "..." : li.name;
       draw(String(i + 1), cxs[0] + 3, ty, { size: 7.5 });
       draw(li.itemCode || "", cxs[1] + 3, ty, { size: 7.5 });
       draw(desc, cxs[2] + 3, ty, { size: 7.5 });
