@@ -20,7 +20,10 @@ export function Providers({ children }: { children: React.ReactNode }) {
     () =>
       new QueryClient({
         defaultOptions: {
-          queries: { staleTime: 30_000, refetchOnWindowFocus: false, retry: 1 },
+          // Zoho webhooks sync invoices server-side, so the browser can hold stale
+          // counts indefinitely. Refetching when the tab regains focus picks those
+          // up; staleTime still prevents a burst of duplicate requests.
+          queries: { staleTime: 30_000, refetchOnWindowFocus: true, retry: 1 },
         },
       }),
   );
