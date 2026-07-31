@@ -33,6 +33,20 @@ export async function attachCatalogue(
   const vendor = await prisma.vendor.findUnique({ where: { id: vendorId } });
   if (!vendor) throw new HttpError(404, "Vendor not found.");
 
+  // A title is the only thing that identifies a catalogue in the UI, so an empty one
+  // creates a blank, meaningless row. Drive uploads always supply one (the filename);
+  // this guards the "add manually" form.
+  const title = (dto.title ?? "").trim();
+  if (!title) throw new HttpError(400, "Catalogue title is required.");
+
+  // A catalogue has to carry something: either a file (Drive upload) or at least one
+  // product. Without either it's an empty row with nothing to open and nothing to
+  // price a PO from.
+  const namedItems = (dto.items ?? []).filter((it) => (it.name ?? "").trim());
+  if (!dto.driveFileId && namedItems.length === 0) {
+    throw new HttpError(400, "Add at least one product, or upload a catalogue file instead.");
+  }
+
   const uploadedAt =
     dto.uploadedAt instanceof Date
       ? dto.uploadedAt
@@ -44,7 +58,7 @@ export async function attachCatalogue(
     const created = await tx.catalogue.create({
       data: {
         vendorId,
-        title: dto.title,
+        title,
         driveFileId: dto.driveFileId,
         viewUrl: dto.viewUrl,
         uploadedAt,
