@@ -172,6 +172,32 @@ export async function buildPoPdf(input: PoPdfInput): Promise<Buffer> {
   const rect = (x: number, yy: number, w: number, h: number) =>
     page.drawRectangle({ x, y: yy, width: w, height: h, borderColor: grid, borderWidth: 0.7 });
 
+  /**
+   * Truncate to a MEASURED width (character counts are unreliable — 34 "W"s are far
+   * wider than 34 "i"s), appending an ellipsis so it's clearly cut off.
+   */
+  const fit = (s: string, maxW: number, size = 7.5, f: PDFFont = font): string => {
+    const str = ascii(s ?? "");
+    if (!str || f.widthOfTextAtSize(str, size) <= maxW) return str;
+    const dots = "...";
+    const dotsW = f.widthOfTextAtSize(dots, size);
+    let out = str;
+    while (out.length > 1 && f.widthOfTextAtSize(out, size) + dotsW > maxW) {
+      out = out.slice(0, -1);
+    }
+    return out + dots;
+  };
+
+  /**
+   * Right-aligned numeric cell. Never truncates — a clipped amount would be wrong,
+   * not just ugly — so it shrinks the font a little to make a long figure fit.
+   */
+  const drawRNum = (s: string, rightX: number, yy: number, maxW: number, size = 7.5) => {
+    let sz = size;
+    while (sz > 5 && font.widthOfTextAtSize(ascii(s), sz) > maxW) sz -= 0.25;
+    drawR(s, rightX, yy, { size: sz });
+  };
+
   const wrap = (s: string, f: PDFFont, size: number, maxW: number): string[] => {
     const words = ascii(s).split(/\s+/);
     const lines: string[] = [];
@@ -260,9 +286,11 @@ export async function buildPoPdf(input: PoPdfInput): Promise<Buffer> {
     for (let c = 0; c < 4; c++) rect(colX[c], top - rowH, colX[c + 1] - colX[c], rowH);
     const ty = top - rowH + 5;
     draw(l1, colX[0] + 3, ty, { size: 7.5, font: bold, color: muted });
-    draw(v1, colX[1] + 3, ty, { size: 8 });
+    // Values are clipped to their cell so a long PO number / vendor code can't
+    // bleed into the next column or off the page.
+    draw(fit(v1, colX[2] - colX[1] - 6, 8), colX[1] + 3, ty, { size: 8 });
     draw(l2, colX[2] + 3, ty, { size: 7.5, font: bold, color: muted });
-    draw(v2, colX[3] + 3, ty, { size: 8 });
+    draw(fit(v2, colX[4] - colX[3] - 6, 8), colX[3] + 3, ty, { size: 8 });
     y -= rowH;
   }
   y -= 10;
@@ -291,7 +319,8 @@ export async function buildPoPdf(input: PoPdfInput): Promise<Buffer> {
     rect(M + supLabelW, top - rowH, RIGHT - M - supLabelW, rowH);
     const ty = top - rowH + 5;
     draw(l, M + 3, ty, { size: 7.5, font: bold, color: muted });
-    draw(v, M + supLabelW + 3, ty, { size: 8 });
+    // Clip to the value cell — a long address would otherwise run off the page.
+    draw(fit(v, RIGHT - M - supLabelW - 6, 8), M + supLabelW + 3, ty, { size: 8 });
     y -= rowH;
   }
   y -= 10;
@@ -355,17 +384,23 @@ export async function buildPoPdf(input: PoPdfInput): Promise<Buffer> {
       const amt = (li.rate || 0) * (li.quantity || 0);
       total += amt;
       taxTotal += amt * ((li.gstPercent || 0) / 100);
-      const desc = li.name.length > 34 ? li.name.slice(0, 31) + "..." : li.name;
+      // Every cell is clipped to its own column width (cw[c] minus 3pt padding each
+      // side) so long values can never bleed over a border into the next column.
+      const pad = 6;
       draw(String(i + 1), cxs[0] + 3, ty, { size: 7.5 });
-      draw(li.itemCode || "", cxs[1] + 3, ty, { size: 7.5 });
-      draw(desc, cxs[2] + 3, ty, { size: 7.5 });
-      draw(li.brand || "", cxs[3] + 3, ty, { size: 7.5 });
-      draw(li.hsn || "", cxs[4] + 3, ty, { size: 7.5 });
-      drawR(String(li.quantity), cxs[6] - 3, ty, { size: 7.5 });
-      draw(li.uom || "EA", cxs[6] + 3, ty, { size: 7.5, color: muted });
-      drawR(money(li.rate), cxs[8] - 3, ty, { size: 7.5 });
-      drawR(li.gstPercent != null ? `${li.gstPercent}%` : "", cxs[9] - 3, ty, { size: 7.5 });
-      drawR(money(amt), cxs[10] - 3, ty, { size: 7.5 });
+      draw(fit(li.itemCode || "", cw[1] - pad), cxs[1] + 3, ty, { size: 7.5 });
+      draw(fit(li.name, cw[2] - pad), cxs[2] + 3, ty, { size: 7.5 });
+      draw(fit(li.brand || "", cw[3] - pad), cxs[3] + 3, ty, { size: 7.5 });
+      draw(fit(li.hsn || "", cw[4] - pad), cxs[4] + 3, ty, { size: 7.5 });
+      drawRNum(String(li.quantity), cxs[6] - 3, ty, cw[5] - pad);
+      draw(fit(li.uom || "EA", cw[6] - pad), cxs[6] + 3, ty, { size: 7.5, color: muted });
+      drawRNum(money(li.rate), cxs[8] - 3, ty, cw[7] - pad);
+      // GST rates are whole or 2-decimal values (0.25, 2.5, 5, 12, 18, 28). Round to
+      // 2dp and drop trailing zeros so a stray high-precision entry can't outgrow the
+      // cell — shrinking alone can't save "18.123456789%".
+      const gstLabel = li.gstPercent != null ? `${Number(li.gstPercent.toFixed(2))}%` : "";
+      drawRNum(gstLabel, cxs[9] - 3, ty, cw[8] - pad);
+      drawRNum(money(amt), cxs[10] - 3, ty, cw[9] - pad);
     } else {
       draw(String(i + 1), cxs[0] + 3, ty, { size: 7.5, color: muted });
       draw("EA", cxs[6] + 3, ty, { size: 7.5, color: muted });

@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Header } from "@/features/layout/Header";
 import { Footer } from "@/features/layout/Footer";
 import { DriveBanner } from "./DriveBanner";
@@ -22,6 +22,7 @@ import { PurchaseOrdersPanel } from "@/features/purchase-orders/PurchaseOrdersPa
 import { dashboardApi, vendorsApi, VendorQuery } from "@/lib/api";
 
 export function DashboardPage() {
+  const qc = useQueryClient();
   const [query, setQuery] = useState<VendorQuery>({ pageSize: 100 });
   const [openVendorId, setOpenVendorId] = useState<string | null>(null);
   const [creatingVendor, setCreatingVendor] = useState(false);
@@ -87,7 +88,16 @@ export function DashboardPage() {
       <Footer />
 
       {openVendorId && (
-        <VendorDetailModal vendorId={openVendorId} onClose={() => setOpenVendorId(null)} />
+        <VendorDetailModal
+          vendorId={openVendorId}
+          onClose={() => {
+            setOpenVendorId(null);
+            // The detail view fetches fresh data (and background Zoho syncs add
+            // invoices server-side), so refresh the list/kanban counts on close —
+            // otherwise a card can still read "0 invoice(s)" for a vendor that has one.
+            qc.invalidateQueries({ queryKey: ["vendors"] });
+          }}
+        />
       )}
       {creatingVendor && (
         <Modal title="Add Vendor" onClose={() => setCreatingVendor(false)}>
