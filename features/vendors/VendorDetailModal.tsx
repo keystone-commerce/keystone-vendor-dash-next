@@ -246,7 +246,7 @@ function CataloguesTab({
 
         <div>
           <div className="flex items-center justify-between mb-1">
-            <span className="label">Products (optional)</span>
+            <span className="label">Products *</span>
             <button type="button" className="btn py-1 text-xs" onClick={() => setRows((rs) => [...rs, emptyItemRow()])}>
               + Add product
             </button>
@@ -265,11 +265,15 @@ function CataloguesTab({
               </div>
             ))}
           </div>
-          <p className="text-xs text-muted mt-1">Leave products blank to just record the catalogue + link. Prices are in ₹.</p>
+          <p className="text-xs text-muted mt-1">
+            Add at least one product — a manual catalogue with no products and no file
+            would be an empty record. Prices are in ₹.
+          </p>
         </div>
 
         <ProgressButton
           type="submit"
+          disabled={!title.trim() || !rows.some((r) => r.name.trim())}
           label="Add catalogue"
           loadingLabel="Adding…"
           loading={attach.isPending}

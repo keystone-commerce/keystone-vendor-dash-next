@@ -170,19 +170,28 @@ async function getPurchaseAccountId(): Promise<string> {
   return cachedPurchaseAccountId;
 }
 
+/** Zoho rejects `search_text` of 100+ chars, and caps item names at 100 too. */
+const ZOHO_ITEM_NAME_MAX = 100;
+const ZOHO_SEARCH_MAX = 90; // comfortably under Zoho's 100-char limit
+
 async function resolvePurchasableItemId(
   name: string,
   rate: number,
   hsn: string | undefined,
   purchaseAccountId: string,
 ): Promise<string> {
-  const found = await api("GET", `/items?search_text=${encodeURIComponent(name)}`);
+  // Zoho errors with "search_text has less than 100 characters" on a long product
+  // name, so search on a prefix and still compare the FULL name in the results.
+  const itemName = name.slice(0, ZOHO_ITEM_NAME_MAX);
+  const searchText = itemName.slice(0, ZOHO_SEARCH_MAX);
+
+  const found = await api("GET", `/items?search_text=${encodeURIComponent(searchText)}`);
   const match = (found?.items ?? []).find(
-    (i: any) => i.name?.toLowerCase() === name.toLowerCase() && i.can_be_purchased,
+    (i: any) => i.name?.toLowerCase() === itemName.toLowerCase() && i.can_be_purchased,
   );
   if (match) return String(match.item_id);
   const created = await api("POST", "/items", {
-    name,
+    name: itemName, // Zoho rejects names longer than this
     rate,
     purchase_rate: rate,
     can_be_purchased: true,
