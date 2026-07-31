@@ -189,6 +189,57 @@ export async function buildPoPdf(input: PoPdfInput): Promise<Buffer> {
   };
 
   /**
+   * Wrap text to a measured width, returning the lines. Wraps on spaces where it can,
+   * but also HARD-BREAKS a single word that's wider than the column — otherwise a long
+   * unbroken string (a run-together product code, say) would still overflow.
+   * Capped at `maxLines`; the final line is ellipsised only if it genuinely exceeds it.
+   */
+  const wrapFit = (
+    s: string,
+    maxW: number,
+    size = 7.5,
+    f: PDFFont = font,
+    maxLines = 6,
+  ): string[] => {
+    const str = ascii(s ?? "").trim();
+    if (!str) return [""];
+    const lines: string[] = [];
+    let cur = "";
+
+    for (const word of str.split(/\s+/)) {
+      if (f.widthOfTextAtSize(word, size) > maxW) {
+        // Word can't fit a line on its own — break it character by character.
+        if (cur) {
+          lines.push(cur);
+          cur = "";
+        }
+        let chunk = "";
+        for (const ch of word) {
+          if (chunk && f.widthOfTextAtSize(chunk + ch, size) > maxW) {
+            lines.push(chunk);
+            chunk = ch;
+          } else chunk += ch;
+        }
+        cur = chunk;
+        continue;
+      }
+      const test = cur ? `${cur} ${word}` : word;
+      if (cur && f.widthOfTextAtSize(test, size) > maxW) {
+        lines.push(cur);
+        cur = word;
+      } else cur = test;
+    }
+    if (cur) lines.push(cur);
+
+    if (lines.length > maxLines) {
+      const kept = lines.slice(0, maxLines);
+      kept[maxLines - 1] = fit(kept[maxLines - 1] + "...", maxW, size, f);
+      return kept;
+    }
+    return lines;
+  };
+
+  /**
    * Right-aligned numeric cell. Never truncates — a clipped amount would be wrong,
    * not just ugly — so it shrinks the font a little to make a long figure fit.
    */
@@ -373,27 +424,50 @@ export async function buildPoPdf(input: PoPdfInput): Promise<Buffer> {
   // below it (Commercial Summary, terms, signatures) flows up or down accordingly.
   // Guard at 1 so an empty PO still renders a valid table body.
   const renderCount = Math.max(input.lineItems.length, 1);
+  const pad = 6; // 3pt padding either side of a cell
+  const lineH = 8; // leading for wrapped 7.5pt text
   for (let i = 0; i < renderCount; i++) {
-    ensure(rowH + 4);
-    if (y === H - M) drawTableHead(); // header repeated after a page break
     const li = input.lineItems[i];
+
+    // Wrap the text columns first: long values flow onto extra lines rather than
+    // being cut off, and the row grows to fit the tallest cell.
+    const cells = li
+      ? {
+          itemCode: wrapFit(li.itemCode || "", cw[1] - pad),
+          name: wrapFit(li.name, cw[2] - pad),
+          brand: wrapFit(li.brand || "", cw[3] - pad),
+          hsn: wrapFit(li.hsn || "", cw[4] - pad),
+          uom: wrapFit(li.uom || "EA", cw[6] - pad),
+        }
+      : null;
+    const lineCount = cells
+      ? Math.max(cells.itemCode.length, cells.name.length, cells.brand.length, cells.hsn.length, cells.uom.length)
+      : 1;
+    // 16pt for a single line (matches the header), +8pt per extra line.
+    const thisRowH = Math.max(rowH, lineCount * lineH + 8);
+
+    ensure(thisRowH + 4);
+    if (y === H - M) drawTableHead(); // header repeated after a page break
     const top = y;
-    for (let c = 0; c < cw.length; c++) rect(cxs[c], top - rowH, cw[c], rowH);
-    const ty = top - rowH + 5;
-    if (li) {
+    for (let c = 0; c < cw.length; c++) rect(cxs[c], top - thisRowH, cw[c], thisRowH);
+    const ty = top - 11; // first-line baseline; wrapped lines step down from here
+    const lineY = (n: number) => ty - n * lineH;
+
+    if (li && cells) {
       const amt = (li.rate || 0) * (li.quantity || 0);
       total += amt;
       taxTotal += amt * ((li.gstPercent || 0) / 100);
-      // Every cell is clipped to its own column width (cw[c] minus 3pt padding each
-      // side) so long values can never bleed over a border into the next column.
-      const pad = 6;
+      const col = (lines: string[], x: number, opts = {}) =>
+        lines.forEach((l, n) => draw(l, x, lineY(n), { size: 7.5, ...opts }));
+
       draw(String(i + 1), cxs[0] + 3, ty, { size: 7.5 });
-      draw(fit(li.itemCode || "", cw[1] - pad), cxs[1] + 3, ty, { size: 7.5 });
-      draw(fit(li.name, cw[2] - pad), cxs[2] + 3, ty, { size: 7.5 });
-      draw(fit(li.brand || "", cw[3] - pad), cxs[3] + 3, ty, { size: 7.5 });
-      draw(fit(li.hsn || "", cw[4] - pad), cxs[4] + 3, ty, { size: 7.5 });
+      col(cells.itemCode, cxs[1] + 3);
+      col(cells.name, cxs[2] + 3);
+      col(cells.brand, cxs[3] + 3);
+      col(cells.hsn, cxs[4] + 3);
+      col(cells.uom, cxs[6] + 3, { color: muted });
+      // Numeric cells stay on one line, aligned with the row's first line.
       drawRNum(String(li.quantity), cxs[6] - 3, ty, cw[5] - pad);
-      draw(fit(li.uom || "EA", cw[6] - pad), cxs[6] + 3, ty, { size: 7.5, color: muted });
       drawRNum(money(li.rate), cxs[8] - 3, ty, cw[7] - pad);
       // GST rates are whole or 2-decimal values (0.25, 2.5, 5, 12, 18, 28). Round to
       // 2dp and drop trailing zeros so a stray high-precision entry can't outgrow the
@@ -405,7 +479,7 @@ export async function buildPoPdf(input: PoPdfInput): Promise<Buffer> {
       draw(String(i + 1), cxs[0] + 3, ty, { size: 7.5, color: muted });
       draw("EA", cxs[6] + 3, ty, { size: 7.5, color: muted });
     }
-    y -= rowH;
+    y -= thisRowH; // rows vary in height now, so step by this row's own height
   }
   y -= 8;
 
