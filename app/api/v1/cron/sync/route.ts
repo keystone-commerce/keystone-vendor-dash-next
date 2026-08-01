@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { runSync } from "@/lib/server/zoho/service";
 
+// A full Zoho sync can take several seconds and grows with invoice volume.
+export const maxDuration = 60;
+
 /**
  * Scheduled Zoho invoice sync — called by Vercel Cron (see vercel.json), so
  * procurement never has to click "Sync invoices".

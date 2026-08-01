@@ -46,7 +46,7 @@ background. If it synced first (≈11s), Zoho would hit a **read timeout**.
 | `ZOHO_ORGANIZATION_ID` | Zoho Books → Organization Profile (Part A) | Which Zoho org to read/write |
 | `ZOHO_DC` | Your data centre — `in`, `com`, `eu`… (default `in`) | Picks the right Zoho domain |
 | `ZOHO_WEBHOOK_SECRET` | **We generate it** (any random string) | Proves the caller is really Zoho |
-| `CRON_SECRET` | We generate it | Secures the daily safety-net sync |
+| `CRON_SECRET` | We generate it | Secures the scheduled safety-net sync |
 
 > Zoho does **not** issue a "webhook credential." A webhook is Zoho calling *us*, so
 > *we* hand Zoho a secret token inside the URL.
@@ -300,8 +300,8 @@ should flip to **Paid** on its own.
    https://<production-url>/api/v1/zoho/webhook?token=<ZOHO_WEBHOOK_SECRET>
    ```
 
-There is also a **daily safety-net cron** (`vercel.json` → `/api/v1/cron/sync` at
-02:00) that catches anything a missed webhook would drop.
+There is also a **15-minute safety-net cron** (`vercel.json` →
+`/api/v1/cron/sync`) that keeps data current when Zoho webhooks are unavailable.
 
 ---
 
@@ -377,7 +377,7 @@ Verified result during setup: webhook calls went `6 → 9`, invoices `7 → 9`
 | Endpoint | Auth | Purpose |
 |---|---|---|
 | `POST /api/v1/zoho/webhook?token=…` | `ZOHO_WEBHOOK_SECRET` | Real-time trigger from Zoho |
-| `GET /api/v1/cron/sync` | `Bearer CRON_SECRET` | Daily safety-net sync (Vercel Cron) |
+| `GET /api/v1/cron/sync` | `Bearer CRON_SECRET` | 15-minute safety-net sync (Vercel Cron) |
 | `POST /api/v1/zoho/sync` | Logged-in user | The manual "Sync invoices" button |
 
 ---
