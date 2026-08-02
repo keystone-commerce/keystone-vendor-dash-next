@@ -1,13 +1,13 @@
-import { InvoiceStatus, rupeesToPaise } from "@shared";
+import { BillStatus, rupeesToPaise } from "@shared";
 import { prisma } from "@/lib/prisma";
 import { HttpError } from "../auth";
 import { audit } from "../audit";
-import { upsertFromZoho } from "../invoices";
+import { upsertFromZoho } from "../bills";
 import * as client from "./client";
 import { matchVendor } from "./matcher";
 import { mapZohoStatus } from "./status-util";
 import { healthCheck } from "./client";
-import { invoiceSource, zohoDc } from "./auth";
+import { syncModule, zohoDc } from "./auth";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -23,12 +23,12 @@ interface SyncResult {
 let lastSyncAt: string | null = null;
 let lastResult: SyncResult | null = null;
 
-function toUpsert(bill: client.ZohoBill, status: InvoiceStatus) {
+function toUpsert(bill: client.ZohoBill, status: BillStatus) {
   return {
     zohoId: bill.zohoId,
-    invoiceNumber: bill.billNumber,
+    billNumber: bill.billNumber,
     amount: rupeesToPaise(bill.total),
-    invoiceDate: new Date(bill.date),
+    billDate: new Date(bill.date),
     dueDate: bill.dueDate ? new Date(bill.dueDate) : null,
     status,
     viewUrl: bill.viewUrl,
@@ -40,7 +40,7 @@ export async function runSync(actorUserId: string | null): Promise<SyncResult> {
   const result: SyncResult = { added: 0, updated: 0, unmatched: 0, skipped: 0, errors: 0 };
 
   // Rebuild the unmatched view from scratch each sync.
-  await prisma.zohoUnmatchedInvoice.deleteMany({});
+  await prisma.zohoUnmatchedBill.deleteMany({});
 
   for (const bill of bills) {
     try {
@@ -49,7 +49,7 @@ export async function runSync(actorUserId: string | null): Promise<SyncResult> {
         result.skipped++;
         continue;
       }
-      const existing = await prisma.invoice.findUnique({ where: { zohoId: bill.zohoId } });
+      const existing = await prisma.bill.findUnique({ where: { zohoId: bill.zohoId } });
       if (existing) {
         await upsertFromZoho(existing.vendorId, toUpsert(bill, status), actorUserId);
         result.updated++;
@@ -57,15 +57,15 @@ export async function runSync(actorUserId: string | null): Promise<SyncResult> {
       }
       const vendorId = await matchVendor(bill);
       if (!vendorId) {
-        await prisma.zohoUnmatchedInvoice.create({
+        await prisma.zohoUnmatchedBill.create({
           data: {
             zohoId: bill.zohoId,
-            invoiceNumber: bill.billNumber,
+            billNumber: bill.billNumber,
             vendorName: bill.vendorName,
             zohoVendorId: bill.vendorId || null,
             amount: rupeesToPaise(bill.total),
             status,
-            invoiceDate: new Date(bill.date),
+            billDate: new Date(bill.date),
             dueDate: bill.dueDate ? new Date(bill.dueDate) : null,
             viewUrl: bill.viewUrl,
           },
@@ -88,23 +88,23 @@ export async function runSync(actorUserId: string | null): Promise<SyncResult> {
 }
 
 export async function listUnmatched() {
-  const rows = await prisma.zohoUnmatchedInvoice.findMany({ orderBy: { createdAt: "desc" } });
+  const rows = await prisma.zohoUnmatchedBill.findMany({ orderBy: { createdAt: "desc" } });
   return rows.map((r) => ({
     zohoId: r.zohoId,
-    invoiceNumber: r.invoiceNumber,
+    billNumber: r.billNumber,
     vendorName: r.vendorName,
     zohoVendorId: r.zohoVendorId,
     amount: r.amount,
     status: r.status,
-    invoiceDate: r.invoiceDate.toISOString(),
+    billDate: r.billDate.toISOString(),
     dueDate: r.dueDate ? r.dueDate.toISOString() : null,
     viewUrl: r.viewUrl,
   }));
 }
 
 export async function assignUnmatched(zohoId: string, vendorId: string, actorUserId: string | null) {
-  const row = await prisma.zohoUnmatchedInvoice.findUnique({ where: { zohoId } });
-  if (!row) throw new HttpError(404, "Unmatched invoice not found (try syncing again).");
+  const row = await prisma.zohoUnmatchedBill.findUnique({ where: { zohoId } });
+  if (!row) throw new HttpError(404, "Unmatched bill not found (try syncing again).");
   const vendor = await prisma.vendor.findUnique({ where: { id: vendorId } });
   if (!vendor) throw new HttpError(400, "Vendor not found.");
 
@@ -118,28 +118,28 @@ export async function assignUnmatched(zohoId: string, vendorId: string, actorUse
     vendorId,
     {
       zohoId: row.zohoId,
-      invoiceNumber: row.invoiceNumber,
+      billNumber: row.billNumber,
       amount: row.amount,
-      invoiceDate: row.invoiceDate,
+      billDate: row.billDate,
       dueDate: row.dueDate,
       status: row.status,
       viewUrl: row.viewUrl,
     },
     actorUserId,
   );
-  await prisma.zohoUnmatchedInvoice.delete({ where: { zohoId } });
-  await audit({ userId: actorUserId, action: "ZOHO_ASSIGN", entityType: "Invoice", entityId: zohoId, metadata: { vendorId } });
+  await prisma.zohoUnmatchedBill.delete({ where: { zohoId } });
+  await audit({ userId: actorUserId, action: "ZOHO_ASSIGN", entityType: "Bill", entityId: zohoId, metadata: { vendorId } });
   return { success: true };
 }
 
 export async function getStatus() {
   const enabled = process.env.ZOHO_ENABLED === "true";
   const health = enabled ? await healthCheck() : { ok: false, message: "Demo mode (ZOHO_ENABLED=false)." };
-  const unmatchedCount = await prisma.zohoUnmatchedInvoice.count();
+  const unmatchedCount = await prisma.zohoUnmatchedBill.count();
   return {
     enabled,
     connected: health.ok,
-    invoiceSource: invoiceSource(),
+    syncModule: syncModule(),
     dataCenter: zohoDc(),
     lastSyncAt,
     lastResult,
@@ -148,9 +148,9 @@ export async function getStatus() {
   };
 }
 
-export async function createZohoInvoice(dto: any, actorUserId: string | null) {
-  const result = await client.createInvoice(dto);
-  await audit({ userId: actorUserId, action: "ZOHO_INVOICE_CREATE", entityType: "ZohoInvoice", entityId: result.zohoId, metadata: { billNumber: result.billNumber, total: result.total } });
+export async function createZohoBill(dto: any, actorUserId: string | null) {
+  const result = await client.createBill(dto);
+  await audit({ userId: actorUserId, action: "ZOHO_INVOICE_CREATE", entityType: "ZohoBill", entityId: result.zohoId, metadata: { billNumber: result.billNumber, total: result.total } });
   return result;
 }
 
@@ -178,6 +178,6 @@ export async function listZohoVendors() {
   }
 }
 
-export async function getInvoicePdf(zohoId: string): Promise<Buffer> {
-  return client.fetchInvoicePdf(zohoId);
+export async function getBillPdf(zohoId: string): Promise<Buffer> {
+  return client.fetchBillPdf(zohoId);
 }

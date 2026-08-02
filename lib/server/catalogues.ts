@@ -47,6 +47,15 @@ export async function attachCatalogue(
     throw new HttpError(400, "Add at least one product, or upload a catalogue file instead.");
   }
 
+  // HSN is a numeric tariff code (4/6/8 digits); catalogue items feed the PO builder,
+  // so a bad value here would surface on the purchase order later.
+  for (const it of namedItems) {
+    const hsn = (it.hsn ?? "").trim();
+    if (hsn && !/^\d{4,8}$/.test(hsn)) {
+      throw new HttpError(400, `HSN must be 4–8 digits (got "${hsn}" on "${it.name}").`);
+    }
+  }
+
   const uploadedAt =
     dto.uploadedAt instanceof Date
       ? dto.uploadedAt

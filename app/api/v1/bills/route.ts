@@ -1,16 +1,16 @@
 import { NextRequest } from "next/server";
-import { DocumentSource, InvoiceStatus } from "@shared";
+import { DocumentSource, BillStatus } from "@shared";
 import { handle } from "@/lib/server/http";
 import { requireUser } from "@/lib/server/auth";
-import { listInvoices } from "@/lib/server/invoices";
+import { listBills } from "@/lib/server/bills";
 
 export async function GET(req: NextRequest) {
   return handle(async () => {
     requireUser(req);
     const sp = req.nextUrl.searchParams;
-    return listInvoices({
+    return listBills({
       vendorId: sp.get("vendorId") ?? undefined,
-      status: (sp.get("status") as InvoiceStatus) ?? undefined,
+      status: (sp.get("status") as BillStatus) ?? undefined,
       source: (sp.get("source") as DocumentSource) ?? undefined,
       page: sp.get("page") ? Number(sp.get("page")) : undefined,
       pageSize: sp.get("pageSize") ? Number(sp.get("pageSize")) : undefined,

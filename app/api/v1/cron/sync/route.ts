@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { runSync } from "@/lib/server/zoho/service";
 
-// A full Zoho sync can take several seconds and grows with invoice volume.
+// A full Zoho sync can take several seconds and grows with bill volume.
 export const maxDuration = 60;
 
 /**
- * Scheduled Zoho invoice sync — called by Vercel Cron (see vercel.json), so
- * procurement never has to click "Sync invoices".
+ * Scheduled Zoho bill sync — called by Vercel Cron (see vercel.json), so
+ * procurement never has to click "Sync bills".
  *
  * Protected by CRON_SECRET: Vercel automatically sends `Authorization: Bearer
  * <CRON_SECRET>` on cron requests when that env var is set. If it's set, we

@@ -1,5 +1,5 @@
 import type { Prisma } from "@prisma/client";
-import { formatInr } from "@shared";
+import { formatInr, gstinError } from "@shared";
 import { prisma } from "@/lib/prisma";
 import { HttpError } from "./auth";
 import { audit } from "./audit";
@@ -14,7 +14,7 @@ function serialize(v: any) {
     createdAt: v.createdAt.toISOString(),
     updatedAt: v.updatedAt.toISOString(),
     catalogueCount: v._count?.catalogues ?? v.catalogues?.length,
-    invoiceCount: v._count?.invoices ?? v.invoices?.length,
+    billCount: v._count?.bills ?? v.bills?.length,
     _count: undefined,
   };
 }
@@ -53,7 +53,7 @@ export async function listVendors(q: VendorQuery) {
       orderBy: { [q.sortBy ?? "createdAt"]: q.sortDir ?? "desc" },
       skip: (page - 1) * pageSize,
       take: pageSize,
-      include: { _count: { select: { catalogues: true, invoices: true } } },
+      include: { _count: { select: { catalogues: true, bills: true } } },
     }),
     prisma.vendor.count({ where }),
   ]);
@@ -68,7 +68,7 @@ export async function getVendor(id: string) {
         orderBy: { uploadedAt: "desc" },
         include: { items: { orderBy: { createdAt: "asc" } } },
       },
-      invoices: { orderBy: { invoiceDate: "desc" } },
+      bills: { orderBy: { billDate: "desc" } },
     },
   });
   if (!vendor) throw new HttpError(404, "Vendor not found.");
@@ -80,9 +80,9 @@ export async function getVendor(id: string) {
       createdAt: c.createdAt.toISOString(),
       items: c.items.map((it) => ({ ...it, createdAt: it.createdAt.toISOString() })),
     })),
-    invoices: vendor.invoices.map((i) => ({
+    bills: vendor.bills.map((i) => ({
       ...i,
-      invoiceDate: i.invoiceDate.toISOString(),
+      billDate: i.billDate.toISOString(),
       dueDate: i.dueDate ? i.dueDate.toISOString() : null,
       createdAt: i.createdAt.toISOString(),
       updatedAt: i.updatedAt.toISOString(),
@@ -113,7 +113,56 @@ function rethrowUniqueViolation(err: unknown): never {
   throw err;
 }
 
+/**
+ * GSTIN is optional, but if supplied it must be a real one — it lands on the purchase
+ * order sent to the vendor and decides the CGST/SGST vs IGST split, so a malformed
+ * value produces a wrong tax document rather than just a cosmetic problem.
+ */
+function assertValidGstin(gstin: unknown) {
+  const value = typeof gstin === "string" ? gstin.trim() : "";
+  if (!value) return; // optional
+  const problem = gstinError(value);
+  if (problem) throw new HttpError(400, problem);
+}
+
+/**
+ * Contact person, mobile and email are printed in the Supplier Details block of every
+ * purchase order, so a vendor missing them produces a PO with blank rows and no way for
+ * anyone to reach the supplier about it. All three are required.
+ *
+ * On update only the keys actually sent are checked, so a PATCH that touches unrelated
+ * fields still works — but none of the three can be cleared back to empty.
+ */
+function assertContactDetails(dto: any, { partial }: { partial: boolean }) {
+  const check = (
+    key: "contactName" | "phone" | "email",
+    label: string,
+    validate?: (v: string) => string | null,
+  ) => {
+    if (partial && dto[key] === undefined) return;
+    const value = typeof dto[key] === "string" ? dto[key].trim() : "";
+    if (!value) {
+      throw new HttpError(
+        400,
+        `${label} is required — it's printed on every purchase order sent to this vendor.`,
+      );
+    }
+    const problem = validate?.(value);
+    if (problem) throw new HttpError(400, problem);
+  };
+
+  check("contactName", "Contact person");
+  check("phone", "Mobile number", (v) =>
+    /^\d{10}$/.test(v) ? null : "Mobile number must be exactly 10 digits.",
+  );
+  check("email", "Email", (v) =>
+    /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v) ? null : "Enter a valid email address.",
+  );
+}
+
 export async function createVendor(dto: any, actorUserId: string | null) {
+  assertValidGstin(dto.gstin);
+  assertContactDetails(dto, { partial: false });
   let vendor;
   try {
     vendor = await prisma.vendor.create({
@@ -141,6 +190,8 @@ export async function createVendor(dto: any, actorUserId: string | null) {
 }
 
 export async function updateVendor(id: string, dto: any, actorUserId: string | null) {
+  assertValidGstin(dto.gstin);
+  assertContactDetails(dto, { partial: true });
   const existing = await prisma.vendor.findUnique({ where: { id } });
   if (!existing) throw new HttpError(404, "Vendor not found.");
   let vendor;
@@ -179,12 +230,12 @@ export async function setZohoLink(id: string, zohoVendorId: string | null, actor
 export async function vendorsCsv(): Promise<string> {
   const vendors = await prisma.vendor.findMany({
     orderBy: { createdAt: "asc" },
-    include: { _count: { select: { catalogues: true, invoices: true } } },
+    include: { _count: { select: { catalogues: true, bills: true } } },
   });
-  const header = ["Name", "Category", "Stage", "Status", "Contact Name", "Phone", "Email", "Contract Value", "Rating", "Contract Start", "Contract End", "Catalogues", "Invoices"];
+  const header = ["Name", "Category", "Stage", "Status", "Contact Name", "Phone", "Email", "Contract Value", "Rating", "Contract Start", "Contract End", "Catalogues", "Bills"];
   const esc = (s: string) => `"${s.replace(/"/g, '""')}"`;
   const rows = vendors.map((v) =>
-    [v.name, v.category, v.stage, v.status, v.contactName ?? "", v.phone ?? "", v.email ?? "", formatInr(v.contractValue), String(v.rating), v.contractStart ? v.contractStart.toISOString().slice(0, 10) : "", v.contractEnd ? v.contractEnd.toISOString().slice(0, 10) : "", String(v._count.catalogues), String(v._count.invoices)]
+    [v.name, v.category, v.stage, v.status, v.contactName ?? "", v.phone ?? "", v.email ?? "", formatInr(v.contractValue), String(v.rating), v.contractStart ? v.contractStart.toISOString().slice(0, 10) : "", v.contractEnd ? v.contractEnd.toISOString().slice(0, 10) : "", String(v._count.catalogues), String(v._count.bills)]
       .map(esc)
       .join(","),
   );

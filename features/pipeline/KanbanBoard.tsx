@@ -119,7 +119,7 @@ function KanbanCard({
           {vendor.catalogueCount ?? 0} catalogue(s)
         </span>
         <span className="text-keystone-green font-medium">
-          {vendor.invoiceCount ?? 0} invoice(s)
+          {vendor.billCount ?? 0} bill(s)
         </span>
       </div>
       <div className="flex gap-2 mt-3">

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { InvoiceStatus, UserRole, VENDOR_CATEGORIES, VendorStatus } from "./enums";
+import { BillStatus, UserRole, VENDOR_CATEGORIES, VendorStatus } from "./enums";
 
 export const loginSchema = z.object({
   email: z.string().email(),
@@ -25,9 +25,10 @@ export const createVendorSchema = z.object({
   name: z.string().min(1, "Vendor name is required"),
   category: z.enum(vendorCategoryValues),
   status: z.nativeEnum(VendorStatus).default(VendorStatus.ACTIVE),
-  contactName: z.string().optional().nullable(),
-  phone: z.string().optional().nullable(),
-  email: z.string().email().optional().nullable().or(z.literal("")),
+  // Required: all three are printed in the Supplier Details block of every PO.
+  contactName: z.string().trim().min(1, "Contact person is required"),
+  phone: z.string().trim().regex(/^\d{10}$/, "Mobile number must be exactly 10 digits"),
+  email: z.string().trim().email("A valid email is required"),
   contractValue: z.number().int().min(0, "Contract value cannot be negative"),
   rating: z.number().int().min(0).max(5).default(0),
   contractStart: z.string().optional().nullable(),
@@ -57,23 +58,23 @@ export const createCatalogueSchema = z.object({
 });
 export type CreateCatalogueInput = z.infer<typeof createCatalogueSchema>;
 
-export const createInvoiceSchema = z.object({
-  invoiceNumber: z.string().min(1),
+export const createBillSchema = z.object({
+  billNumber: z.string().min(1),
   amount: z.number().int().min(0),
-  invoiceDate: z.string().optional(),
-  status: z.nativeEnum(InvoiceStatus).default(InvoiceStatus.UNPAID),
+  billDate: z.string().optional(),
+  status: z.nativeEnum(BillStatus).default(BillStatus.UNPAID),
   driveFileId: z.string().optional().nullable(),
   viewUrl: z.string().url().optional().nullable().or(z.literal("")),
 });
-export type CreateInvoiceInput = z.infer<typeof createInvoiceSchema>;
+export type CreateBillInput = z.infer<typeof createBillSchema>;
 
-export const updateInvoiceSchema = z.object({
-  invoiceNumber: z.string().min(1).optional(),
+export const updateBillSchema = z.object({
+  billNumber: z.string().min(1).optional(),
   amount: z.number().int().min(0).optional(),
-  invoiceDate: z.string().optional(),
-  status: z.nativeEnum(InvoiceStatus).optional(),
+  billDate: z.string().optional(),
+  status: z.nativeEnum(BillStatus).optional(),
 });
-export type UpdateInvoiceInput = z.infer<typeof updateInvoiceSchema>;
+export type UpdateBillInput = z.infer<typeof updateBillSchema>;
 
 export const assignFileSchema = z.object({
   vendorId: z.string().uuid(),

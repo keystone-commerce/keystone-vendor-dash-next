@@ -8,7 +8,7 @@ type Tx = Prisma.TransactionClient | PrismaClient;
 const GATE_MESSAGES: Partial<Record<VendorStage, string>> = {
   [VendorStage.CATALOGUE_RECEIVED]:
     "Add a catalogue for this vendor before marking them Catalogue Received.",
-  [VendorStage.PURCHASE_MADE]: "Add an invoice for this vendor before marking them Purchase Made.",
+  [VendorStage.PURCHASE_MADE]: "Add an bill for this vendor before marking them Purchase Made.",
 };
 
 const idx = (s: VendorStage) => VENDOR_STAGE_ORDER.indexOf(s);
@@ -18,7 +18,7 @@ async function gatePasses(vendorId: string, stage: VendorStage, tx: Tx): Promise
     return (await tx.catalogue.count({ where: { vendorId } })) > 0;
   }
   if (stage === VendorStage.PURCHASE_MADE) {
-    return (await tx.invoice.count({ where: { vendorId } })) > 0;
+    return (await tx.bill.count({ where: { vendorId } })) > 0;
   }
   return true;
 }
@@ -73,7 +73,7 @@ export async function transitionStage(
 /** Auto-advance on document attach — only moves forward, never demotes. */
 export async function autoAdvanceOnDocumentAttach(
   vendorId: string,
-  documentType: "catalogue" | "invoice",
+  documentType: "catalogue" | "bill",
   actorUserId: string | null,
   tx: Tx,
 ) {
@@ -81,7 +81,7 @@ export async function autoAdvanceOnDocumentAttach(
   if (!vendor) return;
   const currentIndex = idx(vendor.stage as VendorStage);
   const minimumStage =
-    documentType === "invoice" ? VendorStage.PURCHASE_MADE : VendorStage.CATALOGUE_RECEIVED;
+    documentType === "bill" ? VendorStage.PURCHASE_MADE : VendorStage.CATALOGUE_RECEIVED;
   if (idx(minimumStage) <= currentIndex) return;
 
   await tx.vendor.update({ where: { id: vendorId }, data: { stage: minimumStage } });

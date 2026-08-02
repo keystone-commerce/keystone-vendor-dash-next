@@ -61,12 +61,12 @@ export const VENDOR_CATEGORY_LABELS: Record<string, string> = Object.fromEntries
   VENDOR_CATEGORIES.map((c) => [c, c]),
 );
 
-export const InvoiceStatus = {
+export const BillStatus = {
   PAID: "PAID",
   UNPAID: "UNPAID",
   OVERDUE: "OVERDUE",
 } as const;
-export type InvoiceStatus = (typeof InvoiceStatus)[keyof typeof InvoiceStatus];
+export type BillStatus = (typeof BillStatus)[keyof typeof BillStatus];
 
 export const DocumentSource = {
   MANUAL_UPLOAD: "MANUAL_UPLOAD",
@@ -82,12 +82,12 @@ export const PurchaseOrderStatus = {
 } as const;
 export type PurchaseOrderStatus = (typeof PurchaseOrderStatus)[keyof typeof PurchaseOrderStatus];
 
-/** Which Zoho Books module invoices are read from. Bills = money vendors charge Keystone (default). */
-export const ZohoInvoiceSource = {
+/** Which Zoho Books module bills are read from. Bills = money vendors charge Keystone (default). */
+export const ZohoBillSource = {
   BILLS: "bills",
-  INVOICES: "invoices",
+  INVOICES: "bills",
 } as const;
-export type ZohoInvoiceSource = (typeof ZohoInvoiceSource)[keyof typeof ZohoInvoiceSource];
+export type ZohoBillSource = (typeof ZohoBillSource)[keyof typeof ZohoBillSource];
 
 export const UserRole = {
   ADMIN: "ADMIN",

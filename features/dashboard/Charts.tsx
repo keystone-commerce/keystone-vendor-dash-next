@@ -117,20 +117,20 @@ export function CategoryValueChart({ stats }: { stats: DashboardStats }) {
   );
 }
 
-export function InvoiceStatusChart({ stats }: { stats: DashboardStats }) {
+export function BillStatusChart({ stats }: { stats: DashboardStats }) {
   const isDark = useChartTheme();
   const data = {
     labels: ["Paid", "Unpaid", "Overdue"],
     datasets: [
       {
-        data: [stats.invoiceStatus.PAID, stats.invoiceStatus.UNPAID, stats.invoiceStatus.OVERDUE],
+        data: [stats.billStatus.PAID, stats.billStatus.UNPAID, stats.billStatus.OVERDUE],
         backgroundColor: [BRAND.green, BRAND.amber, BRAND.red],
         borderWidth: 0,
       },
     ],
   };
   return (
-    <ChartCard title="Invoice Status">
+    <ChartCard title="Bill Status">
       <Doughnut
         key={String(isDark)}
         data={data}

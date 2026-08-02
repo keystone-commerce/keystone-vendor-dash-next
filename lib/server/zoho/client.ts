@@ -1,4 +1,4 @@
-import { apiBase, getAccessToken, invalidateToken, invoiceSource, organizationId, zohoDc } from "./auth";
+import { apiBase, getAccessToken, invalidateToken, syncModule, organizationId, zohoDc } from "./auth";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -51,6 +51,10 @@ export async function healthCheck(): Promise<{ ok: boolean; message: string | nu
   }
 }
 
+// NOTE: the snake_case keys below are Zoho's own API field names — they are the wire
+// format and must stay as Zoho spells them, even though we call the records "bills"
+// internally. `module` is still both values because ZOHO_INVOICE_SOURCE can select
+// either side of the ledger.
 function mapRecord(r: any, module: "bills" | "invoices"): ZohoBill | null {
   const zohoId = module === "bills" ? r.bill_id : r.invoice_id;
   if (!zohoId) return null;
@@ -68,7 +72,7 @@ function mapRecord(r: any, module: "bills" | "invoices"): ZohoBill | null {
 }
 
 export async function listBills(): Promise<ZohoBill[]> {
-  const module = invoiceSource();
+  const module = syncModule();
   const results: ZohoBill[] = [];
   let page = 1;
   let hasMore = true;
@@ -85,15 +89,15 @@ export async function listBills(): Promise<ZohoBill[]> {
   return results;
 }
 
-export async function fetchInvoicePdf(zohoId: string, isRetry = false): Promise<Buffer> {
+export async function fetchBillPdf(zohoId: string, isRetry = false): Promise<Buffer> {
   const token = await getAccessToken();
   const params = new URLSearchParams({ accept: "pdf", organization_id: organizationId() });
-  const res = await fetch(`${apiBase()}/${invoiceSource()}/${zohoId}?${params.toString()}`, {
+  const res = await fetch(`${apiBase()}/${syncModule()}/${zohoId}?${params.toString()}`, {
     headers: { Authorization: `Zoho-oauthtoken ${token}` },
   });
   if (res.status === 401 && !isRetry) {
     invalidateToken();
-    return fetchInvoicePdf(zohoId, true);
+    return fetchBillPdf(zohoId, true);
   }
   if (!res.ok) throw new Error(`Zoho PDF fetch failed (${res.status}) for ${zohoId}.`);
   return Buffer.from(await res.arrayBuffer());
@@ -135,24 +139,25 @@ export async function fetchPurchaseOrderPdfWithRetry(
   throw lastErr instanceof Error ? lastErr : new Error("Zoho PO PDF fetch failed.");
 }
 
-export async function createInvoice(input: {
+export async function createBill(input: {
   customerId: string;
   date?: string;
   dueDate?: string;
   referenceNumber?: string;
   lineItems: { name: string; rate: number; quantity: number }[];
 }): Promise<{ zohoId: string; billNumber: string; total: number }> {
-  const json = await api("POST", `/${invoiceSource()}`, {
+  const json = await api("POST", `/${syncModule()}`, {
     customer_id: input.customerId,
     date: input.date ?? new Date().toISOString().slice(0, 10),
     ...(input.dueDate ? { due_date: input.dueDate } : {}),
     ...(input.referenceNumber ? { reference_number: input.referenceNumber } : {}),
     line_items: input.lineItems.map((li) => ({ name: li.name, rate: li.rate, quantity: li.quantity })),
   });
-  const rec = json?.invoice ?? json?.bill ?? {};
+  // Again: Zoho's own response keys — "bill" or "invoice" depending on the module.
+  const rec = json?.bill ?? json?.invoice ?? {};
   return {
-    zohoId: String(rec.invoice_id ?? rec.bill_id ?? ""),
-    billNumber: String(rec.invoice_number ?? rec.bill_number ?? ""),
+    zohoId: String(rec.bill_id ?? rec.invoice_id ?? ""),
+    billNumber: String(rec.bill_number ?? rec.invoice_number ?? ""),
     total: Number(rec.total ?? 0),
   };
 }

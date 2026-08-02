@@ -1,6 +1,6 @@
 import {
   DocumentSource,
-  InvoiceStatus,
+  BillStatus,
   PurchaseOrderStatus,
   UserRole,
   VendorCategory,
@@ -68,14 +68,14 @@ export interface CatalogueDto {
   items?: CatalogueItemDto[];
 }
 
-export interface InvoiceDto {
+export interface BillDto {
   id: string;
   vendorId: string;
-  invoiceNumber: string;
+  billNumber: string;
   amount: number;
-  invoiceDate: string;
+  billDate: string;
   dueDate: string | null;
-  status: InvoiceStatus;
+  status: BillStatus;
   driveFileId: string | null;
   zohoId: string | null;
   viewUrl: string | null;
@@ -106,9 +106,9 @@ export interface VendorDto {
   createdAt: string;
   updatedAt: string;
   catalogues?: CatalogueDto[];
-  invoices?: InvoiceDto[];
+  bills?: BillDto[];
   catalogueCount?: number;
-  invoiceCount?: number;
+  billCount?: number;
 }
 
 export interface PaginatedResult<T> {
@@ -124,32 +124,32 @@ export interface DashboardStatsDto {
   purchaseMadeCount: number;
   purchaseMadePercent: number;
   totalContractValue: number;
-  invoicedPaid: number;
-  invoicedPaidCount: number;
+  billdPaid: number;
+  billdPaidCount: number;
   outstanding: number;
   contractsExpiring: number;
   pipeline: Record<VendorStage, number>;
   contractValueByCategory: Record<string, number>;
-  invoiceStatusMix: Record<InvoiceStatus, number>;
+  billStatusMix: Record<BillStatus, number>;
   topVendorsByValue: { id: string; name: string; contractValue: number }[];
 }
 
 export interface UnassignedFileDto {
   driveFileId: string;
   name: string;
-  kind: "Catalogue" | "Invoice" | "Unknown";
+  kind: "Catalogue" | "Bill" | "Unknown";
   parsedVendorToken: string | null;
   createdTime: string;
 }
 
-export interface ZohoUnmatchedInvoiceDto {
+export interface ZohoUnmatchedBillDto {
   zohoId: string;
-  invoiceNumber: string;
+  billNumber: string;
   vendorName: string;
   zohoVendorId: string | null;
   amount: number;
-  status: InvoiceStatus;
-  invoiceDate: string;
+  status: BillStatus;
+  billDate: string;
   dueDate: string | null;
   viewUrl: string | null;
 }
@@ -165,7 +165,7 @@ export interface ZohoSyncResultDto {
 export interface ZohoStatusDto {
   enabled: boolean;
   connected: boolean;
-  invoiceSource: "bills" | "invoices";
+  syncModule: "bills" | "bills";
   dataCenter: string;
   lastSyncAt: string | null;
   lastResult: ZohoSyncResultDto | null;

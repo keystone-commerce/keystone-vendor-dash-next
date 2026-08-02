@@ -4,7 +4,7 @@ import { runSync } from "@/lib/server/zoho/service";
 
 /**
  * Zoho Books webhook — Zoho calls this the moment a bill is created/updated, so
- * invoices sync in near-real-time (no polling). Configure a Zoho Workflow Rule
+ * bills sync in near-real-time (no polling). Configure a Zoho Workflow Rule
  * (module: Bills, on Create/Edit) with a Webhook action pointing at:
  *   https://<app>/api/v1/zoho/webhook?token=<ZOHO_WEBHOOK_SECRET>
  *

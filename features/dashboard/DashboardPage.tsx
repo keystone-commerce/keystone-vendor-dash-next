@@ -8,7 +8,7 @@ import { Toolbar } from "./Toolbar";
 import { StatCards } from "./StatCards";
 import {
   CategoryValueChart,
-  InvoiceStatusChart,
+  BillStatusChart,
   PipelineChart,
   TopVendorsChart,
 } from "./Charts";
@@ -70,7 +70,7 @@ export function DashboardPage() {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <PipelineChart stats={stats} />
               <CategoryValueChart stats={stats} />
-              <InvoiceStatusChart stats={stats} />
+              <BillStatusChart stats={stats} />
               <TopVendorsChart stats={stats} />
             </div>
           </div>
@@ -93,8 +93,8 @@ export function DashboardPage() {
           onClose={() => {
             setOpenVendorId(null);
             // The detail view fetches fresh data (and background Zoho syncs add
-            // invoices server-side), so refresh the list/kanban counts on close —
-            // otherwise a card can still read "0 invoice(s)" for a vendor that has one.
+            // bills server-side), so refresh the list/kanban counts on close —
+            // otherwise a card can still read "0 bill(s)" for a vendor that has one.
             qc.invalidateQueries({ queryKey: ["vendors"] });
           }}
         />

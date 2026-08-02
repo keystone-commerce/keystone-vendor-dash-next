@@ -39,7 +39,7 @@ export function Header() {
           </div>
           <h1 className="text-xl md:text-2xl font-bold leading-tight">Vendor Dashboard</h1>
           <p className="text-xs text-muted mt-0.5">
-            Procurement pipeline, catalogues &amp; invoices — one place, always current.
+            Procurement pipeline, catalogues &amp; bills — one place, always current.
           </p>
         </div>
 

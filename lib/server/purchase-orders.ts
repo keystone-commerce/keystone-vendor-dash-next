@@ -112,12 +112,128 @@ export async function listPurchaseOrders(status?: string) {
 }
 
 /** Procurement submits — PENDING, nothing sent to Zoho yet. Emails the approver. */
+/**
+ * HSN is a numeric tariff code (4/6/8 digits). The form strips non-digits, but the API
+ * is callable directly and this value lands on the PO document and in Zoho.
+ */
+function assertValidHsn(lineItems: PoLine[]) {
+  for (const li of lineItems ?? []) {
+    const hsn = (li.hsn ?? "").trim();
+    if (hsn && !/^\d{4,8}$/.test(hsn)) {
+      throw new HttpError(400, `HSN must be 4–8 digits (got "${hsn}" on "${li.name}").`);
+    }
+  }
+}
+
+/**
+ * Item Code is a column on the PO document — it's how the supplier identifies the
+ * product on their own system. A blank cell makes the line ambiguous, so it's required.
+ */
+function assertItemCodes(lineItems: PoLine[]) {
+  for (const li of lineItems ?? []) {
+    if (!(li.itemCode ?? "").trim()) {
+      throw new HttpError(400, `Item Code is required (missing on "${li.name}").`);
+    }
+  }
+}
+
+/**
+ * The Supplier Details block on the PO prints the contact person and their email /
+ * mobile. Those became mandatory on the vendor form, but vendors created before that —
+ * and any created straight through the API — can still be missing them, so check here
+ * too. Otherwise the document reaches the supplier with blank rows.
+ */
+function assertVendorContactable(vendor: {
+  name: string;
+  contactName: string | null;
+  email: string | null;
+  phone: string | null;
+}) {
+  const missing = [
+    !vendor.contactName?.trim() && "contact person",
+    !vendor.email?.trim() && "email",
+    !vendor.phone?.trim() && "mobile",
+  ].filter(Boolean);
+
+  if (missing.length) {
+    throw new HttpError(
+      400,
+      `${vendor.name} is missing ${missing.join(", ")}. Add ${missing.length > 1 ? "these" : "this"} on the vendor (Vendors → Edit) — they're printed in the Supplier Details block of the PO.`,
+    );
+  }
+}
+
+/**
+ * Email the approvers a PDF of the PO awaiting their decision.
+ *
+ * Recipients are exactly the ADMIN users, read from the database. Admins are managed on
+ * the Team screen, so adding or removing one changes who gets notified with no config
+ * edit and no redeploy.
+ *
+ * Deliberately NOT configurable: this used to read a PO_APPROVER_EMAIL env var, which
+ * bypassed the role check and sent approval requests (with the PO PDF attached) to
+ * whoever happened to be in that variable — including procurement members, who aren't
+ * allowed to approve. Only role decides now.
+ *
+ * Shared by submit and edit: an edit re-sends so nobody approves against a stale PDF.
+ */
+async function notifyApprovers(
+  po: { id: string; poNumber: string | null; createdAt: Date },
+  vendor: any,
+  lineItems: PoLine[],
+  total: number,
+  reason: "submitted" | "updated" | "resubmitted after rejection" = "submitted",
+) {
+  const admins = await prisma.user.findMany({ where: { role: "ADMIN" }, select: { email: true } });
+  const recipients = [...new Set(admins.map((a) => a.email))].filter(Boolean);
+
+  if (!recipients.length) {
+    // Nobody to tell — surface it rather than failing silently like the old code did.
+    console.warn(`[po] ${po.id} ${reason} but there is no ADMIN user to notify.`);
+    return;
+  }
+
+  // Soft-fail: if the PDF can't be built, still send the email without the attachment.
+  let attachments;
+  try {
+    // Same builder the approved PDF uses, so the approver reviews the exact document
+    // that later goes out — only the status line differs.
+    const pdf = await buildKeystonePoPdf(
+      { vendor, poNumber: po.poNumber, createdAt: po.createdAt, lineItems },
+      { status: "PENDING" },
+    );
+    const fileLabel = (po.poNumber || `PO-${po.id.slice(0, 8)}`).replace(/[^\w.-]/g, "_");
+    attachments = [{ filename: `${fileLabel}.pdf`, content: pdf, contentType: "application/pdf" }];
+  } catch (err) {
+    console.warn(`[po] PDF generation failed for ${po.id}: ${(err as Error).message}`);
+  }
+
+  const headline =
+    reason === "submitted"
+      ? "A new Purchase Order request awaits your approval in the Vendor Dashboard."
+      : `A Purchase Order awaiting your approval was ${reason}. The details below replace the earlier version.`;
+
+  await sendMail({
+    to: recipients.join(", "),
+    subject: `PO approval needed — ${vendor.name} (₹${total.toLocaleString("en-IN")})`,
+    text:
+      `${headline}\n\n` +
+      `Vendor: ${vendor.name}\nItems: ${lineItems.length}\nTotal: ₹${total.toLocaleString("en-IN")}\n\n` +
+      `The full purchase order is attached as a PDF for your review.\n\n` +
+      `Log in to Approve or Reject it:\n${appUrl()}\n`,
+    attachments,
+  });
+}
+
 export async function createPurchaseOrder(
   dto: { vendorId: string; poNumber?: string; lineItems: PoLine[] },
   actorUserId: string | null,
 ) {
   const vendor = await prisma.vendor.findUnique({ where: { id: dto.vendorId } });
   if (!vendor) throw new HttpError(400, "Vendor not found.");
+  assertVendorContactable(vendor);
+  assertValidHsn(dto.lineItems);
+  assertItemCodes(dto.lineItems);
 
   const total = dto.lineItems.reduce((s, li) => s + (li.rate || 0) * (li.quantity || 0), 0);
   const po = await prisma.purchaseOrder.create({
@@ -134,39 +250,80 @@ export async function createPurchaseOrder(
   });
   await audit({ userId: actorUserId, action: "PO_SUBMIT", entityType: "PurchaseOrder", entityId: po.id, metadata: { vendorId: dto.vendorId, total } });
 
-  const approver = (process.env.PO_APPROVER_EMAIL ?? "").trim();
-  if (approver) {
-    // Generate the PO as a PDF from our own data so the approver can review the
-    // full order before it's approved / created in Zoho. Soft-fail: if the PDF
-    // can't be built, still send the email without the attachment.
-    let attachments;
-    try {
-      // Same builder the approved PDF uses, so the approver reviews the exact
-      // document that later goes out — only the status line differs.
-      const pdf = await buildKeystonePoPdf(
-        { vendor, poNumber: po.poNumber, createdAt: po.createdAt, lineItems: dto.lineItems },
-        { status: "PENDING" },
-      );
-      const fileLabel = (po.poNumber || `PO-${po.id.slice(0, 8)}`).replace(/[^\w.-]/g, "_");
-      attachments = [{ filename: `${fileLabel}.pdf`, content: pdf, contentType: "application/pdf" }];
-    } catch (err) {
-      console.warn(`[po] PDF generation failed for ${po.id}: ${(err as Error).message}`);
-    }
-    await sendMail({
-      to: approver,
-      subject: `PO approval needed — ${vendor.name} (₹${total.toLocaleString("en-IN")})`,
-      text:
-        `A new Purchase Order request awaits your approval in the Vendor Dashboard.\n\n` +
-        `Vendor: ${vendor.name}\nItems: ${dto.lineItems.length}\nTotal: ₹${total.toLocaleString("en-IN")}\n\n` +
-        `The full purchase order is attached as a PDF for your review.\n\n` +
-        `Log in to Approve or Reject it:\n${appUrl()}\n`,
-      attachments,
-    });
-  }
+  await notifyApprovers(po, vendor, dto.lineItems, total, "submitted");
   return serialize(po);
 }
 
 /** Admin approves → create in Zoho + email the vendor, mark APPROVED. */
+/**
+ * Edit a purchase order that hasn't been actioned yet.
+ *
+ * Only PENDING and REJECTED POs can be changed. An APPROVED PO already exists in Zoho
+ * Books — editing it here would leave the dashboard and Zoho silently disagreeing about
+ * what was ordered, so it's refused. Editing a REJECTED one moves it back to PENDING,
+ * which is how "fix it and resubmit" works.
+ *
+ * Admins can edit any editable PO; a procurement member can only edit their own.
+ */
+export async function updatePurchaseOrder(
+  id: string,
+  dto: { poNumber?: string | null; lineItems?: PoLine[] },
+  actor: { userId: string | null; role: string },
+) {
+  const po = await prisma.purchaseOrder.findUnique({ where: { id }, include: { vendor: true } });
+  if (!po) throw new HttpError(404, "Purchase order not found.");
+
+  if (po.status === "APPROVED") {
+    throw new HttpError(
+      409,
+      "This PO is already approved and exists in Zoho Books, so it can't be edited. Raise a new one instead.",
+    );
+  }
+  if (actor.role !== "ADMIN" && po.createdById && po.createdById !== actor.userId) {
+    throw new HttpError(403, "You can only edit purchase orders you raised.");
+  }
+
+  const lineItems = dto.lineItems ?? ((po.lineItems as any[]) ?? []);
+  if (!lineItems.length) throw new HttpError(400, "A purchase order needs at least one line item.");
+  assertVendorContactable(po.vendor);
+  assertValidHsn(lineItems);
+  assertItemCodes(lineItems);
+
+  const total = lineItems.reduce((s, li) => s + (li.rate || 0) * (li.quantity || 0), 0);
+  const wasRejected = po.status === "REJECTED";
+
+  const updated = await prisma.purchaseOrder.update({
+    where: { id },
+    data: {
+      lineItems: lineItems as any,
+      total,
+      ...(dto.poNumber !== undefined ? { poNumber: dto.poNumber || null } : {}),
+      // Editing a rejected PO puts it back in the queue and clears the old reason.
+      ...(wasRejected ? { status: "PENDING", decisionReason: null, decidedAt: null, decidedById: null } : {}),
+    },
+    include: { vendor: { select: { name: true } } },
+  });
+  await audit({
+    userId: actor.userId,
+    action: "PO_UPDATE",
+    entityType: "PurchaseOrder",
+    entityId: id,
+    metadata: { total, items: lineItems.length, resubmitted: wasRejected },
+  });
+
+  // The approvers were emailed a PDF of the previous version — re-send so they don't
+  // approve against a stale document.
+  await notifyApprovers(
+    updated,
+    po.vendor,
+    lineItems,
+    total,
+    wasRejected ? "resubmitted after rejection" : "updated",
+  );
+
+  return serialize(updated);
+}
+
 export async function approvePurchaseOrder(id: string, actorUserId: string | null) {
   const po = await prisma.purchaseOrder.findUnique({ where: { id }, include: { vendor: true } });
   if (!po) throw new HttpError(404, "Purchase order not found.");

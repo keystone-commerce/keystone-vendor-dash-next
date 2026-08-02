@@ -1,7 +1,14 @@
 import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { VENDOR_CATEGORIES, VendorCategory, VendorDto } from "@shared";
+import {
+  VENDOR_CATEGORIES,
+  VendorCategory,
+  VendorDto,
+  gstinError,
+  gstinWarning,
+  parseGstin,
+} from "@shared";
 import { vendorsApi, zohoApi } from "@/lib/api";
 import { apiError } from "@/lib/api-client";
 import { SearchableSelect } from "@/components/SearchableSelect";
@@ -35,6 +42,12 @@ export function VendorForm({ vendor, onClose }: Props) {
   const [notes, setNotes] = useState(vendor?.notes ?? "");
   const [gstin, setGstin] = useState(vendor?.gstin ?? "");
   const [gstAddress, setGstAddress] = useState(vendor?.gstAddress ?? "");
+
+  // GSTIN is optional, so only validate once something's been typed.
+  // gstinError = hard (blocks submit); gstinWarning = advisory check-digit hint.
+  const gstinProblem = gstin.trim() ? gstinError(gstin) : null;
+  const gstinNote = gstin.trim() ? gstinWarning(gstin) : null;
+  const gstinParts = gstin.trim() ? parseGstin(gstin) : null;
   const [zohoVendorId, setZohoVendorId] = useState(vendor?.zohoVendorId ?? "");
 
   const mutation = useMutation({
@@ -42,9 +55,11 @@ export function VendorForm({ vendor, onClose }: Props) {
       const payload = {
         name,
         category,
-        contactName: contactName || undefined,
-        phone: phone || undefined,
-        email: email || undefined,
+        // Sent as actual values (not `|| undefined`) — these are required, and omitting
+        // them from a PATCH would let an existing vendor keep an empty contact block.
+        contactName: contactName.trim(),
+        phone: phone.trim(),
+        email: email.trim(),
         contractValue: Math.round(contractValue * 100),
         rating,
         contractStart: contractStart || undefined,
@@ -93,8 +108,20 @@ export function VendorForm({ vendor, onClose }: Props) {
       className="grid grid-cols-1 md:grid-cols-2 gap-4"
       onSubmit={(e) => {
         e.preventDefault();
-        if (phone && phone.length !== 10) {
-          toast.error("Phone number must be exactly 10 digits.");
+        if (!contactName.trim()) {
+          toast.error("Contact person is required — it appears on every purchase order.");
+          return;
+        }
+        if (phone.length !== 10) {
+          toast.error("Mobile number must be exactly 10 digits.");
+          return;
+        }
+        if (!email.trim()) {
+          toast.error("Email is required — it appears on every purchase order.");
+          return;
+        }
+        if (gstinProblem) {
+          toast.error(gstinProblem);
           return;
         }
         mutation.mutate();
@@ -115,16 +142,19 @@ export function VendorForm({ vendor, onClose }: Props) {
           />
         </div>
       </label>
+      {/* Contact person, phone and email are required — they fill the Supplier Details
+          block on every PO, which was going out with those rows blank. */}
       <label className="block">
-        <span className="label">Contact name</span>
+        <span className="label">Contact person *</span>
         <input
           className="input mt-1"
           value={contactName}
           onChange={(e) => setContactName(e.target.value)}
+          required
         />
       </label>
       <label className="block">
-        <span className="label">Phone</span>
+        <span className="label">Mobile *</span>
         <input
           className="input mt-1"
           type="tel"
@@ -134,26 +164,40 @@ export function VendorForm({ vendor, onClose }: Props) {
           value={phone}
           // Keep digits only and never allow more than 10.
           onChange={(e) => setPhone(e.target.value.replace(/\D/g, "").slice(0, 10))}
+          required
         />
       </label>
       <label className="block">
-        <span className="label">Email</span>
+        <span className="label">Email *</span>
         <input
           className="input mt-1"
           type="email"
           value={email}
           onChange={(e) => setEmail(e.target.value)}
+          required
         />
       </label>
       <label className="block">
         <span className="label">GSTIN</span>
         <input
-          className="input mt-1 uppercase"
+          className={`input mt-1 uppercase ${gstinProblem ? "border-keystone-red" : ""}`}
           placeholder="29ABCDE1234F1Z5"
           maxLength={15}
           value={gstin}
-          onChange={(e) => setGstin(e.target.value.toUpperCase())}
+          // A GSTIN is 15 chars: 2-digit state code, 10-char PAN, entity digit, 'Z',
+          // check digit. Strip anything that can't appear so typos are caught early.
+          onChange={(e) => setGstin(e.target.value.toUpperCase().replace(/[^0-9A-Z]/g, "").slice(0, 15))}
         />
+        {gstinProblem && <span className="text-xs text-keystone-red mt-1 block">{gstinProblem}</span>}
+        {!gstinProblem && gstinNote && (
+          <span className="text-xs text-keystone-amber mt-1 block">{gstinNote}</span>
+        )}
+        {!gstinProblem && gstinParts?.state && (
+          <span className="text-xs text-muted mt-1 block">
+            {gstinParts.state}
+            {gstinParts.entityType ? ` · ${gstinParts.entityType}` : ""}
+          </span>
+        )}
       </label>
       <label className="block">
         <span className="label">Full address</span>

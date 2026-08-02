@@ -102,14 +102,32 @@ Click **Create**, pick your **organization/portal**, then copy the **grant code*
 <details>
 <summary>Narrower scopes instead of full access</summary>
 
-The app reads bills/invoices and creates contacts, items and purchase orders, so:
+Paste this as the scope (no spaces, comma-separated):
 
 ```text
-ZohoBooks.invoices.READ,ZohoBooks.bills.READ,ZohoBooks.contacts.CREATE,
-ZohoBooks.contacts.READ,ZohoBooks.items.CREATE,ZohoBooks.items.READ,
-ZohoBooks.purchaseorders.CREATE,ZohoBooks.purchaseorders.READ,
+ZohoBooks.bills.READ,ZohoBooks.bills.CREATE,ZohoBooks.contacts.READ,
+ZohoBooks.contacts.CREATE,ZohoBooks.items.READ,ZohoBooks.items.CREATE,
+ZohoBooks.purchaseorders.READ,ZohoBooks.purchaseorders.CREATE,
 ZohoBooks.settings.READ
 ```
+
+Why each one is needed — every Zoho call the app makes:
+
+| Scope | Used for |
+|---|---|
+| `bills.READ` | Sync bills into the dashboard; fetch a bill PDF |
+| `bills.CREATE` | Convert an approved PO into a Bill |
+| `contacts.READ` | List Zoho vendors when linking |
+| `contacts.CREATE` | "Create in Zoho & link" on a vendor |
+| `items.READ` | Find an existing product before adding a PO line |
+| `items.CREATE` | Create the product if it isn't in Zoho yet |
+| `purchaseorders.READ` | Fetch the PO back from Zoho |
+| `purchaseorders.CREATE` | Create the PO on approval, and email it to the vendor |
+| `settings.READ` | Read the chart of accounts to pick the expense/COGS account a new item posts to |
+
+> ⚠️ Add `ZohoBooks.invoices.READ` **only** if you set `ZOHO_INVOICE_SOURCE="invoices"`
+> to read customer invoices instead of supplier bills. The procurement flow uses bills,
+> so it isn't needed by default.
 
 `fullaccess.all` is simpler and is what most setups use.
 </details>
@@ -166,7 +184,7 @@ ZOHO_CLIENT_ID="1000.XXXX"
 ZOHO_CLIENT_SECRET="xxxx"
 ZOHO_REFRESH_TOKEN="1000.yyyy"
 ZOHO_ORGANIZATION_ID="60000000000"
-ZOHO_INVOICE_SOURCE="invoices"      # "invoices" (customer) or "bills" (vendor)
+ZOHO_INVOICE_SOURCE="bills"      # "invoices" (customer) or "bills" (vendor)
 ```
 
 Locally these go in `.env`; in production, **Vercel → Settings → Environment
