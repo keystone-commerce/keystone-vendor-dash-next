@@ -8,7 +8,7 @@ type Tx = Prisma.TransactionClient | PrismaClient;
 const GATE_MESSAGES: Partial<Record<VendorStage, string>> = {
   [VendorStage.CATALOGUE_RECEIVED]:
     "Add a catalogue for this vendor before marking them Catalogue Received.",
-  [VendorStage.PURCHASE_MADE]: "Add an bill for this vendor before marking them Purchase Made.",
+  [VendorStage.PURCHASE_MADE]: "Add a bill for this vendor before marking them Purchase Made.",
 };
 
 const idx = (s: VendorStage) => VENDOR_STAGE_ORDER.indexOf(s);

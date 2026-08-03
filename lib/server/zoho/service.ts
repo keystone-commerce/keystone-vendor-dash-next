@@ -149,7 +149,18 @@ export async function getStatus() {
 }
 
 export async function createZohoBill(dto: any, actorUserId: string | null) {
-  const result = await client.createBill(dto);
+  // The body arrives as unvalidated JSON, so pin the shape here rather than letting an
+  // absent id reach Zoho as `vendor_id: undefined` — which fails with an opaque error.
+  // `customerId` is accepted as the previous name for the same field.
+  const contactId = String(dto?.contactId ?? dto?.customerId ?? "").trim();
+  if (!contactId) {
+    throw new HttpError(400, "contactId is required — the Zoho id of the vendor to bill.");
+  }
+  if (!Array.isArray(dto?.lineItems) || dto.lineItems.length === 0) {
+    throw new HttpError(400, "At least one line item is required.");
+  }
+
+  const result = await client.createBill({ ...dto, contactId });
   await audit({ userId: actorUserId, action: "ZOHO_BILL_CREATE", entityType: "ZohoBill", entityId: result.zohoId, metadata: { billNumber: result.billNumber, total: result.total } });
   return result;
 }

@@ -140,14 +140,19 @@ export async function fetchPurchaseOrderPdfWithRetry(
 }
 
 export async function createBill(input: {
-  customerId: string;
+  /** Zoho contact id — a vendor when posting to /bills, a customer for /invoices. */
+  contactId: string;
   date?: string;
   dueDate?: string;
   referenceNumber?: string;
   lineItems: { name: string; rate: number; quantity: number }[];
 }): Promise<{ zohoId: string; billNumber: string; total: number }> {
-  const json = await api("POST", `/${syncModule()}`, {
-    customer_id: input.customerId,
+  const module = syncModule();
+  const json = await api("POST", `/${module}`, {
+    // Zoho names the counterparty differently per module: a Bill is owed to a vendor
+    // (`vendor_id`), an Invoice is owed by a customer (`customer_id`). Posting
+    // customer_id to /bills is rejected, so this has to follow the module.
+    ...(module === "bills" ? { vendor_id: input.contactId } : { customer_id: input.contactId }),
     date: input.date ?? new Date().toISOString().slice(0, 10),
     ...(input.dueDate ? { due_date: input.dueDate } : {}),
     ...(input.referenceNumber ? { reference_number: input.referenceNumber } : {}),

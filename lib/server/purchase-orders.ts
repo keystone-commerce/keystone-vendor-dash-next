@@ -279,8 +279,17 @@ export async function updatePurchaseOrder(
       "This PO is already approved and exists in Zoho Books, so it can't be edited. Raise a new one instead.",
     );
   }
-  if (actor.role !== "ADMIN" && po.createdById && po.createdById !== actor.userId) {
-    throw new HttpError(403, "You can only edit purchase orders you raised.");
+  // A missing createdById means the PO isn't attributed to anyone (seeded rows, or one
+  // raised before submitters were recorded). That's "unowned", not "owned by everyone" —
+  // guarding on `po.createdById &&` would have let any member edit those.
+  const isOwner = Boolean(po.createdById) && po.createdById === actor.userId;
+  if (actor.role !== "ADMIN" && !isOwner) {
+    throw new HttpError(
+      403,
+      po.createdById
+        ? "You can only edit purchase orders you raised."
+        : "This purchase order isn't attributed to anyone, so only an Admin can edit it.",
+    );
   }
 
   const lineItems = dto.lineItems ?? ((po.lineItems as any[]) ?? []);
