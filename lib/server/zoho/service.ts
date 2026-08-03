@@ -148,20 +148,90 @@ export async function getStatus() {
   };
 }
 
-export async function createZohoBill(dto: any, actorUserId: string | null) {
-  // The body arrives as unvalidated JSON, so pin the shape here rather than letting an
-  // absent id reach Zoho as `vendor_id: undefined` — which fails with an opaque error.
-  // `customerId` is accepted as the previous name for the same field.
-  const contactId = String(dto?.contactId ?? dto?.customerId ?? "").trim();
-  if (!contactId) {
-    throw new HttpError(400, "contactId is required — the Zoho id of the vendor to bill.");
+/** A Zoho id arrives as JSON — accept a string or number, reject objects/arrays/null. */
+function scalarId(v: unknown, field: string): string {
+  if (typeof v !== "string" && typeof v !== "number") {
+    throw new HttpError(400, `${field} must be a string or number.`);
   }
-  if (!Array.isArray(dto?.lineItems) || dto.lineItems.length === 0) {
+  const s = String(v).trim();
+  if (!s) throw new HttpError(400, `${field} cannot be empty.`);
+  return s;
+}
+
+/** Optional yyyy-mm-dd date from the request body. */
+function optionalDate(v: unknown, field: string): string | undefined {
+  if (v === undefined || v === null || v === "") return undefined;
+  if (typeof v !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(v.trim())) {
+    throw new HttpError(400, `${field} must be a date in yyyy-mm-dd format.`);
+  }
+  return v.trim();
+}
+
+/**
+ * Validate the line items from the request body.
+ *
+ * client.createBill reads li.name/rate/quantity off each entry, so a payload like
+ * `lineItems: [null]` would get past a length check and then throw a TypeError as a 500.
+ * Every entry is checked here so bad input is a 400 that says what's wrong.
+ */
+function parseBillLineItems(v: unknown): { name: string; rate: number; quantity: number }[] {
+  if (!Array.isArray(v) || v.length === 0) {
     throw new HttpError(400, "At least one line item is required.");
   }
+  return v.map((li, i) => {
+    const at = `lineItems[${i}]`;
+    if (typeof li !== "object" || li === null || Array.isArray(li)) {
+      throw new HttpError(400, `${at} must be an object.`);
+    }
+    const row = li as Record<string, unknown>;
+    const name = typeof row.name === "string" ? row.name.trim() : "";
+    if (!name) throw new HttpError(400, `${at}.name is required.`);
 
-  const result = await client.createBill({ ...dto, contactId });
-  await audit({ userId: actorUserId, action: "ZOHO_BILL_CREATE", entityType: "ZohoBill", entityId: result.zohoId, metadata: { billNumber: result.billNumber, total: result.total } });
+    const quantity = Number(row.quantity);
+    if (!Number.isFinite(quantity) || quantity <= 0) {
+      throw new HttpError(400, `${at}.quantity must be a number greater than 0.`);
+    }
+    const rate = Number(row.rate);
+    if (!Number.isFinite(rate) || rate < 0) {
+      throw new HttpError(400, `${at}.rate must be a number of 0 or more.`);
+    }
+    return { name, rate, quantity };
+  });
+}
+
+export async function createZohoBill(dto: any, actorUserId: string | null) {
+  // The body arrives as unvalidated JSON. Everything is checked before the remote POST:
+  // Zoho can't be un-called, so a payload that would fail halfway has to be rejected here.
+  // `customerId` is accepted as the previous name for contactId.
+  const contactId = scalarId(dto?.contactId ?? dto?.customerId, "contactId");
+  const lineItems = parseBillLineItems(dto?.lineItems);
+  const date = optionalDate(dto?.date, "date");
+  const dueDate = optionalDate(dto?.dueDate, "dueDate");
+  const referenceNumber =
+    dto?.referenceNumber === undefined || dto?.referenceNumber === null
+      ? undefined
+      : String(dto.referenceNumber).trim() || undefined;
+
+  const result = await client.createBill({ contactId, date, dueDate, referenceNumber, lineItems });
+
+  // The bill now exists in Zoho, and Zoho has no idempotency key — so a retry would
+  // create a second one. Failing to write our own audit row must therefore not surface as
+  // an error, or the caller retries a POST that already succeeded. Log it and move on:
+  // a missing audit row is recoverable, a duplicate bill in the accounts is not.
+  try {
+    await audit({
+      userId: actorUserId,
+      action: "ZOHO_BILL_CREATE",
+      entityType: "ZohoBill",
+      entityId: result.zohoId,
+      metadata: { billNumber: result.billNumber, total: result.total },
+    });
+  } catch (err) {
+    console.warn(
+      `[zoho] bill ${result.billNumber} (${result.zohoId}) was created but the audit row failed: ${(err as Error).message}`,
+    );
+  }
+
   return result;
 }
 
