@@ -100,7 +100,35 @@ export interface ZohoBillUpsert {
   viewUrl: string | null;
 }
 
-/** Idempotent upsert of a Zoho-sourced bill, keyed on zohoId. Returns whether it was created. */
+/** Overwrite the Zoho-owned fields on a bill we already have. */
+function applyZohoFields(id: string, data: ZohoBillUpsert) {
+  return prisma.bill.update({
+    where: { id },
+    data: {
+      billNumber: data.billNumber,
+      amount: data.amount,
+      billDate: data.billDate,
+      dueDate: data.dueDate,
+      status: data.status,
+      viewUrl: data.viewUrl ?? undefined,
+    },
+  });
+}
+
+/**
+ * Idempotent upsert of a Zoho-sourced bill, keyed on zohoId. Returns whether it was
+ * created.
+ *
+ * The lookup-then-insert below is a check-then-act, and two syncs can genuinely overlap:
+ * the webhook fires on a Zoho change while the cron safety-net sync is mid-run, and both
+ * call runSync. `zohoId` is unique, so the loser's insert fails with P2002 — which we
+ * treat as the update it would have been rather than letting runSync report a sync error
+ * for a bill that did in fact save.
+ *
+ * Not solvable with prisma.upsert(): the create branch also has to auto-advance the
+ * vendor's stage and write an audit row in the same transaction, and only the sync that
+ * actually inserts should do that.
+ */
 export async function upsertFromZoho(
   vendorId: string,
   data: ZohoBillUpsert,
@@ -108,37 +136,42 @@ export async function upsertFromZoho(
 ): Promise<{ created: boolean }> {
   const existing = await prisma.bill.findUnique({ where: { zohoId: data.zohoId } });
   if (existing) {
-    await prisma.bill.update({
-      where: { id: existing.id },
-      data: {
-        billNumber: data.billNumber,
-        amount: data.amount,
-        billDate: data.billDate,
-        dueDate: data.dueDate,
-        status: data.status,
-        viewUrl: data.viewUrl ?? undefined,
-      },
-    });
+    await applyZohoFields(existing.id, data);
     return { created: false };
   }
-  await prisma.$transaction(async (tx) => {
-    const created = await tx.bill.create({
-      data: {
-        vendorId,
-        billNumber: data.billNumber,
-        amount: data.amount,
-        billDate: data.billDate,
-        dueDate: data.dueDate,
-        status: data.status,
-        zohoId: data.zohoId,
-        viewUrl: data.viewUrl,
-        source: DocumentSource.ZOHO_SYNC,
-      },
+
+  try {
+    await prisma.$transaction(async (tx) => {
+      const created = await tx.bill.create({
+        data: {
+          vendorId,
+          billNumber: data.billNumber,
+          amount: data.amount,
+          billDate: data.billDate,
+          dueDate: data.dueDate,
+          status: data.status,
+          zohoId: data.zohoId,
+          viewUrl: data.viewUrl,
+          source: DocumentSource.ZOHO_SYNC,
+        },
+      });
+      await autoAdvanceOnDocumentAttach(vendorId, "bill", actorUserId, tx);
+      await tx.auditLog.create({
+        data: { userId: actorUserId, action: "BILL_ZOHO_CREATE", entityType: "Bill", entityId: created.id, metadata: { vendorId, zohoId: data.zohoId } },
+      });
     });
-    await autoAdvanceOnDocumentAttach(vendorId, "bill", actorUserId, tx);
-    await tx.auditLog.create({
-      data: { userId: actorUserId, action: "BILL_ZOHO_CREATE", entityType: "Bill", entityId: created.id, metadata: { vendorId, zohoId: data.zohoId } },
-    });
-  });
-  return { created: true };
+    return { created: true };
+  } catch (err) {
+    // A concurrent sync inserted this bill between the lookup and the insert. The whole
+    // transaction rolled back, so the winner owns the stage advance and the audit row —
+    // all that's left for us is to apply the field values we fetched.
+    if ((err as { code?: string })?.code === "P2002") {
+      const winner = await prisma.bill.findUnique({ where: { zohoId: data.zohoId } });
+      if (winner) {
+        await applyZohoFields(winner.id, data);
+        return { created: false };
+      }
+    }
+    throw err;
+  }
 }
