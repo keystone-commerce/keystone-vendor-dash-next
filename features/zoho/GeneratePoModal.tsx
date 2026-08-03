@@ -303,8 +303,11 @@ export function GeneratePoModal({ onClose, initialVendorId, editing }: Props) {
                 key={i}
                 className="grid grid-cols-[90px_minmax(160px,1fr)_1fr_80px_60px_64px_100px_70px_40px] gap-2 items-center"
               >
-                {/* Required — it's a column on the PO the supplier reads the line from. */}
-                <input className="input py-1" placeholder="Code" value={r.itemCode} onChange={(e) => updateRow(i, { itemCode: e.target.value })} required />
+                {/* Required on rows that are actually filled in, but deliberately NOT
+                    native `required`: that would also block submit on a blank spare row
+                    the user added and changed their mind about. `missingItemCode` gates
+                    it per real row instead, and says which item is missing one. */}
+                <input className="input py-1" placeholder="Code" value={r.itemCode} onChange={(e) => updateRow(i, { itemCode: e.target.value })} />
                 <input className="input py-1" placeholder="Product name" value={r.name} onChange={(e) => updateRow(i, { name: e.target.value })} />
                 <input className="input py-1" placeholder="Brand" value={r.brand} onChange={(e) => updateRow(i, { brand: e.target.value })} />
                 {/* HSN codes are numeric (4, 6 or 8 digits) — strip anything else as
