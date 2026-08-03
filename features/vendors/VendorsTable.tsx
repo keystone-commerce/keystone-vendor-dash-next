@@ -65,7 +65,7 @@ export function VendorsTable({ vendors, total, loading = false, onOpenVendor }: 
         id: "docs",
         header: "Docs",
         cell: ({ row }) =>
-          `${row.original.catalogueCount ?? 0} cat / ${row.original.billCount ?? 0} inv`,
+          `${row.original.catalogueCount ?? 0} cat / ${row.original.billCount ?? 0} bill`,
       },
       {
         id: "zoho",

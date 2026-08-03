@@ -82,10 +82,17 @@ export const PurchaseOrderStatus = {
 } as const;
 export type PurchaseOrderStatus = (typeof PurchaseOrderStatus)[keyof typeof PurchaseOrderStatus];
 
-/** Which Zoho Books module bills are read from. Bills = money vendors charge Keystone (default). */
+/**
+ * Which Zoho Books module bills are read from. Bills = money vendors charge Keystone
+ * (default); invoices = the customer side.
+ *
+ * These are Zoho's own module names — do NOT rename the "invoices" value to "bills".
+ * It's the literal path segment used in the API URL and the value of
+ * ZOHO_INVOICE_SOURCE, so changing it collapses both options onto the same module.
+ */
 export const ZohoBillSource = {
   BILLS: "bills",
-  INVOICES: "bills",
+  INVOICES: "invoices",
 } as const;
 export type ZohoBillSource = (typeof ZohoBillSource)[keyof typeof ZohoBillSource];
 

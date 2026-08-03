@@ -150,7 +150,7 @@ export async function getStatus() {
 
 export async function createZohoBill(dto: any, actorUserId: string | null) {
   const result = await client.createBill(dto);
-  await audit({ userId: actorUserId, action: "ZOHO_INVOICE_CREATE", entityType: "ZohoBill", entityId: result.zohoId, metadata: { billNumber: result.billNumber, total: result.total } });
+  await audit({ userId: actorUserId, action: "ZOHO_BILL_CREATE", entityType: "ZohoBill", entityId: result.zohoId, metadata: { billNumber: result.billNumber, total: result.total } });
   return result;
 }
 
