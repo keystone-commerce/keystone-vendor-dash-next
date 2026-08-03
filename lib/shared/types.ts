@@ -31,6 +31,8 @@ export interface PurchaseOrderDto {
   decidedById: string | null;
   decisionReason: string | null;
   decidedAt: string | null;
+  /** Agreed delivery date (ISO), or null if none has been set yet. */
+  deliveryDate: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -103,6 +105,8 @@ export interface VendorDto {
   notes: string | null;
   gstin: string | null;
   gstAddress: string | null;
+  billingAddress: string | null;
+  shippingAddress: string | null;
   createdAt: string;
   updatedAt: string;
   catalogues?: CatalogueDto[];

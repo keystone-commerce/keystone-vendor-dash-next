@@ -248,7 +248,9 @@ export interface CreatePurchaseOrderResult {
 export interface CreatePoInput {
   vendorId: string; // dashboard vendor id
   poNumber?: string;
-  lineItems: { name: string; quantity: number; rate: number; hsn?: string }[];
+  /** Agreed delivery date as yyyy-mm-dd. Printed on the PO. */
+  deliveryDate?: string | null;
+  lineItems: PoLineItemInput[];
 }
 export const purchaseOrdersApi = {
   list: (status?: PurchaseOrderStatus) =>
@@ -258,7 +260,14 @@ export const purchaseOrdersApi = {
   create: (input: CreatePoInput) =>
     api.post<PurchaseOrderDto>("/purchase-orders", input).then((r) => r.data),
   /** Edit a PENDING/REJECTED PO. Approved ones are refused server-side (409). */
-  update: (id: string, input: { poNumber?: string | null; lineItems?: PoLineItemInput[] }) =>
+  update: (
+    id: string,
+    input: {
+      poNumber?: string | null;
+      deliveryDate?: string | null;
+      lineItems?: PoLineItemInput[];
+    },
+  ) =>
     api.patch<PurchaseOrderDto>(`/purchase-orders/${id}`, input).then((r) => r.data),
   approve: (id: string) =>
     api.post<PurchaseOrderDto>(`/purchase-orders/${id}/approve`).then((r) => r.data),

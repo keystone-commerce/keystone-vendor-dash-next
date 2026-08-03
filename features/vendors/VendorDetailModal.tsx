@@ -47,7 +47,8 @@ export function VendorDetailModal({ vendorId, onClose }: Props) {
       ) : (
         <>
           <div className="text-xs text-muted mb-3">
-            {VENDOR_CATEGORY_LABELS[vendor.category]} · {vendor.status}
+            {VENDOR_CATEGORY_LABELS[vendor.category]} · {vendor.status} · added{" "}
+            {formatDate(vendor.createdAt)}
           </div>
           <div className="flex gap-2 border-b border-border mb-4">
             {(["overview", "catalogues", "bills"] as Tab[]).map((t) => (
@@ -441,7 +442,7 @@ function BillsTab({
                   rel="noreferrer"
                   title="Open this bill in Zoho Books"
                 >
-                  Open ↗
+                  Zoho ↗
                 </a>
               )}
               {!fromZoho && (

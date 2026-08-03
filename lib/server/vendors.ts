@@ -180,6 +180,8 @@ export async function createVendor(dto: any, actorUserId: string | null) {
         notes: dto.notes,
         gstin: dto.gstin || null,
         gstAddress: dto.gstAddress || null,
+        billingAddress: dto.billingAddress || null,
+        shippingAddress: dto.shippingAddress || null,
       },
     });
   } catch (err) {

@@ -42,6 +42,8 @@ export function VendorForm({ vendor, onClose }: Props) {
   const [notes, setNotes] = useState(vendor?.notes ?? "");
   const [gstin, setGstin] = useState(vendor?.gstin ?? "");
   const [gstAddress, setGstAddress] = useState(vendor?.gstAddress ?? "");
+  const [billingAddress, setBillingAddress] = useState(vendor?.billingAddress ?? "");
+  const [shippingAddress, setShippingAddress] = useState(vendor?.shippingAddress ?? "");
 
   // GSTIN is optional, so only validate once something's been typed.
   // gstinError = hard (blocks submit); gstinWarning = advisory check-digit hint.
@@ -69,6 +71,8 @@ export function VendorForm({ vendor, onClose }: Props) {
         // wrongly-entered GSTIN/address — undefined would be omitted from the PATCH.
         gstin: gstin.trim() ? gstin.trim().toUpperCase() : null,
         gstAddress: gstAddress.trim() ? gstAddress.trim() : null,
+        billingAddress: billingAddress.trim() ? billingAddress.trim() : null,
+        shippingAddress: shippingAddress.trim() ? shippingAddress.trim() : null,
       };
       if (isEdit) {
         const updated = await vendorsApi.update(vendor!.id, payload);
@@ -200,12 +204,43 @@ export function VendorForm({ vendor, onClose }: Props) {
         )}
       </label>
       <label className="block">
-        <span className="label">Full address</span>
+        <span className="label">Full address (registered)</span>
         <input
           className="input mt-1"
           placeholder="Street, city, state, PIN"
           value={gstAddress}
           onChange={(e) => setGstAddress(e.target.value)}
+        />
+      </label>
+
+      {/* Pushed to Zoho as the contact's billing_address / shipping_address when the
+          vendor is created there, and printed on the PO. */}
+      <label className="block">
+        <span className="label">Billing address</span>
+        <input
+          className="input mt-1"
+          placeholder="Where the vendor invoices from"
+          value={billingAddress}
+          onChange={(e) => setBillingAddress(e.target.value)}
+        />
+      </label>
+      <label className="block">
+        <div className="flex items-center justify-between">
+          <span className="label">Shipping address</span>
+          <button
+            type="button"
+            className="text-xs text-orange-deep hover:underline disabled:opacity-40 disabled:no-underline"
+            disabled={!billingAddress.trim()}
+            onClick={() => setShippingAddress(billingAddress)}
+          >
+            same as billing
+          </button>
+        </div>
+        <input
+          className="input mt-1"
+          placeholder="Where goods dispatch from"
+          value={shippingAddress}
+          onChange={(e) => setShippingAddress(e.target.value)}
         />
       </label>
       <label className="block">

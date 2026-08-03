@@ -85,6 +85,8 @@ export function GeneratePoModal({ onClose, initialVendorId, editing }: Props) {
   );
   const [zohoVendorId, setZohoVendorId] = useState(editing?.zohoVendorId ?? "");
   const [poNumber, setPoNumber] = useState(editing?.poNumber ?? "");
+  // <input type="date"> needs yyyy-mm-dd, so trim the stored ISO timestamp.
+  const [deliveryDate, setDeliveryDate] = useState(editing?.deliveryDate?.slice(0, 10) ?? "");
   const [rows, setRows] = useState<LineRow[]>(editing ? rowsFromPo(editing) : [emptyRow()]);
 
   // Load the picked vendor's full detail (incl. catalogue items) so we can offer a picker.
@@ -163,6 +165,7 @@ export function GeneratePoModal({ onClose, initialVendorId, editing }: Props) {
       if (editing) {
         return purchaseOrdersApi.update(editing.id, {
           poNumber: poNumber.trim() || null,
+          deliveryDate: deliveryDate || null,
           lineItems,
         });
       }
@@ -171,6 +174,7 @@ export function GeneratePoModal({ onClose, initialVendorId, editing }: Props) {
       return purchaseOrdersApi.create({
         vendorId: dashboardVendorId,
         poNumber: poNumber.trim() || undefined,
+        deliveryDate: deliveryDate || null,
         lineItems,
       });
     },
@@ -235,6 +239,18 @@ export function GeneratePoModal({ onClose, initialVendorId, editing }: Props) {
               value={poNumber}
               onChange={(e) => setPoNumber(e.target.value)}
               placeholder="Auto-generated if blank"
+            />
+          </label>
+          {/* Prints in the "Delivery Date" cell of the PO header. Optional, so a PO can
+              still be raised before a date has been agreed with the vendor. */}
+          <label className="block">
+            <span className="label">Delivery date</span>
+            <input
+              className="input mt-1"
+              type="date"
+              value={deliveryDate}
+              onChange={(e) => setDeliveryDate(e.target.value)}
+              title="When the vendor must deliver — printed on the purchase order"
             />
           </label>
         </div>

@@ -76,7 +76,7 @@ permissions, so a member cannot self-approve spend.
 | Forms | **react-hook-form** + `@hookform/resolvers` | 7.x | — |
 | Validation | **Zod** | 3.x | Shared client/server schemas |
 | ORM | **Prisma** | 6.x | Type-safe DB access + migrations |
-| Database | **PostgreSQL** (Supabase) | 15 | Managed, pooled |
+| Database | **PostgreSQL** (AWS RDS) | 15 | Managed; no built-in pooler |
 | Auth | **jsonwebtoken** + **bcryptjs** | — | JWT access/refresh; hashed OTP codes |
 | PDF | **pdf-lib** | 1.17 | PO generation, no native deps (serverless-safe) |
 | Email | **Gmail API** (googleapis) + nodemailer fallback | 144.x / 6.x | Transactional mail |
@@ -106,7 +106,7 @@ flowchart TD
         B["app/api/v1/**/route.ts<br/>41 route handlers"]
         C["lib/server/**<br/>business logic"]
     end
-    D[("Supabase Postgres<br/>via Prisma")]
+    D[("AWS RDS Postgres<br/>via Prisma")]
     E["Zoho Books API"]
     F["Google Drive API"]
     G["Gmail API"]
@@ -364,9 +364,9 @@ so PDFs can be attached. Falls back to SMTP, then to console logging in developm
 ## 9. Environment Configuration
 
 ```bash
-# Database (Supabase)
-DATABASE_URL=            # transaction pooler :6543, connection_limit=1 in production
-DIRECT_URL=              # session pooler :5432, for migrations
+# Database (AWS RDS Postgres)
+DATABASE_URL=            # instance endpoint :5432, ?sslmode=require&connection_limit=5
+DIRECT_URL=              # same URL without connection_limit; migrations only
 
 # Auth
 JWT_ACCESS_SECRET= / JWT_ACCESS_TTL=15m
@@ -405,7 +405,7 @@ GMAIL_SENDER_EMAIL= / GMAIL_SENDER_NAME=
 | Build | `prisma generate && next build` |
 | Migrations | `prisma migrate deploy` |
 | Cron | `vercel.json` → `/api/v1/cron/sync` daily at 02:00 |
-| Database | Supabase Postgres (shared by preview and production) |
+| Database | AWS RDS Postgres (shared by preview and production) |
 
 > ⚠️ Preview deployments share the **production database**. Data created in a preview
 > is real.

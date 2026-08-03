@@ -264,12 +264,61 @@ export async function listVendors(): Promise<{ id: string; name: string }[]> {
   }));
 }
 
+let cachedOrgGstEnabled: boolean | null = null;
+
+/**
+ * Whether this Zoho organisation is registered for GST.
+ *
+ * `gst_no` and `gst_treatment` only exist on a contact when the *organisation* has GST
+ * enabled (India edition, Settings → Taxes → GST). Sending them to an org without it is
+ * rejected with `{"code":8,"message":"Invalid Element gst_no"}` — a 400, not a permission
+ * error — which fails the whole vendor creation. So ask once and cache, the same way the
+ * purchase account is cached.
+ *
+ * Fails open to `false`: skipping the GST fields still creates a usable vendor, whereas
+ * sending them to an org that can't accept them creates nothing at all.
+ */
+async function orgSupportsGst(): Promise<boolean> {
+  if (cachedOrgGstEnabled !== null) return cachedOrgGstEnabled;
+  try {
+    const json = await api("GET", `/organizations/${organizationId()}`);
+    const org = json?.organization ?? {};
+    cachedOrgGstEnabled = Boolean(
+      org.is_registered_for_gst ?? org.tax_settings?.is_tax_registered ?? false,
+    );
+  } catch {
+    cachedOrgGstEnabled = false;
+  }
+  return cachedOrgGstEnabled;
+}
+
+/**
+ * Zoho caps a contact address line at 500 characters and rejects anything longer, so a
+ * free-text address is trimmed rather than allowed to fail the whole vendor creation.
+ */
+function toZohoAddress(text: string | undefined, stateName?: string) {
+  const address = (text ?? "").trim();
+  if (!address) return undefined;
+  return {
+    address: address.slice(0, 500),
+    ...(stateName ? { state: stateName } : {}),
+    country: "India",
+  };
+}
+
 export async function createVendor(input: {
   name: string;
   email?: string;
   phone?: string;
+  /** 15-char GSTIN. Its presence is what marks the vendor GST-registered in Zoho. */
+  gstin?: string;
+  /** State name derived from the GSTIN's leading 2-digit code. */
+  gstStateName?: string;
+  billingAddress?: string;
+  shippingAddress?: string;
 }): Promise<{ id: string; name: string }> {
   const body: any = { contact_name: input.name, contact_type: "vendor" };
+
   if (input.email || input.phone) {
     body.contact_persons = [
       {
@@ -279,6 +328,28 @@ export async function createVendor(input: {
       },
     ];
   }
+
+  // GST, only if this organisation is registered for it — see orgSupportsGst().
+  // `gst_treatment` is what Zoho displays as registered/unregistered: "business_gst"
+  // means GST-registered and requires gst_no, so without a GSTIN the vendor has to be
+  // "business_none" or Zoho rejects the request for a missing number.
+  const gstin = (input.gstin ?? "").trim().toUpperCase();
+  if (await orgSupportsGst()) {
+    if (gstin) {
+      body.gst_no = gstin;
+      body.gst_treatment = "business_gst";
+    } else {
+      body.gst_treatment = "business_none";
+    }
+  }
+
+  const billing = toZohoAddress(input.billingAddress, input.gstStateName);
+  const shipping = toZohoAddress(input.shippingAddress, input.gstStateName);
+  if (billing) body.billing_address = billing;
+  // Vendors commonly dispatch from the billing address; fall back so the Zoho contact
+  // isn't left with an empty shipping address when only one was captured.
+  if (shipping ?? billing) body.shipping_address = shipping ?? billing;
+
   const json = await api("POST", "/contacts", body);
   const c = json?.contact ?? {};
   return { id: String(c.contact_id ?? ""), name: String(c.contact_name ?? input.name) };

@@ -62,6 +62,13 @@ export function VendorsTable({ vendors, total, loading = false, onOpenVendor }: 
         cell: (info) => formatDate(info.getValue<string | null>()),
       },
       {
+        // When the vendor was first added. Set by the database on insert, so it's
+        // present on every row including ones created before this column existed.
+        accessorKey: "createdAt",
+        header: "Added",
+        cell: (info) => formatDate(info.getValue<string>()),
+      },
+      {
         id: "docs",
         header: "Docs",
         cell: ({ row }) =>
