@@ -119,12 +119,18 @@ Every Zoho call the app makes, and the scope it needs:
 | `POST /bills` | `bills.CREATE` | Convert an approved PO into a Bill |
 | `POST /purchaseorders` | `purchaseorders.CREATE` | Create the PO in Zoho on approval |
 | `GET /purchaseorders/{id}?accept=pdf` | `purchaseorders.READ` | PO PDF |
-| `POST /purchaseorders/{id}/email` | `purchaseorders.CREATE` | Email the PO to the vendor |
 | `GET /contacts?contact_type=vendor` | `contacts.READ` | List Zoho vendors when linking |
 | `POST /contacts` | `contacts.CREATE` | "Create in Zoho & link" on a vendor |
 | `GET /items?search_text=…` | `settings.READ` | Find an existing product before adding a PO line |
 | `POST /items` | `settings.CREATE` | Create the product if it isn't in Zoho yet |
 | `GET /chartofaccounts` | `accountants.READ` | Pick the expense/COGS account a new item posts to |
+
+**Not in the list, on purpose:** `POST /purchaseorders/{id}/email`. Zoho can email a PO
+itself, but it sends *its* plain PDF. The vendor gets our Keystone letterhead PDF
+instead, sent through Gmail — so `createZohoPurchaseOrder()` is called without
+`emailTo` and that endpoint never fires. No scope is needed for it. All outbound mail
+(login codes, approval requests, the vendor's PO) goes through the `GMAIL_OAUTH_*`
+credentials, which are independent of Zoho.
 
 Two of these are easy to get wrong, because the scope name doesn't match the endpoint
 name — both are per Zoho's
