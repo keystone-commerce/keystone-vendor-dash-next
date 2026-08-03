@@ -7,6 +7,7 @@ import { apiError } from "@/lib/api-client";
 import { useAuthStore } from "@/lib/auth-store";
 import { SearchableSelect } from "@/components/SearchableSelect";
 import ProgressButton from "@/components/ui/progress-button";
+import { GeneratePoModal } from "@/features/zoho/GeneratePoModal";
 
 const STATUS_CHIP: Record<PurchaseOrderStatus, string> = {
   PENDING: "bg-keystone-amber/15 text-keystone-amber",
@@ -34,6 +35,7 @@ export function PurchaseOrdersPanel() {
   const [showAll, setShowAll] = useState(false);
   const [statusFilter, setStatusFilter] = useState<"ALL" | PurchaseOrderStatus>("ALL");
   const [search, setSearch] = useState("");
+  const [editingPo, setEditingPo] = useState<PurchaseOrderDto | null>(null);
   const VISIBLE_LIMIT = 5;
 
   const { data: pos = [] } = useQuery({
@@ -140,6 +142,7 @@ export function PurchaseOrdersPanel() {
               po={po}
               isAdmin={isAdmin}
               onView={() => openPoPdf(po.id)}
+              onEdit={() => setEditingPo(po)}
               onApprove={() => approve.mutate(po.id)}
               onReject={(reason) => reject.mutate({ id: po.id, reason })}
               // Per-row busy state (see pendingIds) — robust to concurrent actions
@@ -156,6 +159,18 @@ export function PurchaseOrdersPanel() {
           </button>
         </div>
       )}
+
+      {/* Reuses the Generate PO modal in edit mode — same form, prefilled, so the
+          line-item validation and GST maths can't drift between the two paths. */}
+      {editingPo && (
+        <GeneratePoModal
+          editing={editingPo}
+          onClose={() => {
+            setEditingPo(null);
+            qc.invalidateQueries({ queryKey: ["purchase-orders"] });
+          }}
+        />
+      )}
     </section>
   );
 }
@@ -164,6 +179,7 @@ function PoRow({
   po,
   isAdmin,
   onView,
+  onEdit,
   onApprove,
   onReject,
   busy,
@@ -171,6 +187,7 @@ function PoRow({
   po: PurchaseOrderDto;
   isAdmin: boolean;
   onView: () => void;
+  onEdit: () => void;
   onApprove: () => void;
   onReject: (reason: string) => void;
   busy: boolean;
@@ -179,6 +196,9 @@ function PoRow({
   const [reason, setReason] = useState("");
   const items = po.lineItems ?? [];
   const needsZohoLink = po.status === "PENDING" && !po.zohoVendorId;
+  // PENDING = fix before approval; REJECTED = fix and resubmit. APPROVED is locked
+  // because it already exists in Zoho Books.
+  const canEdit = po.status === "PENDING" || po.status === "REJECTED";
 
   return (
     <li className="p-4">
@@ -214,6 +234,22 @@ function PoRow({
             <button className="btn-primary py-1" onClick={onView}>
               View
             </button>
+            {/* Editable only while it hasn't been actioned — an APPROVED PO already
+                exists in Zoho Books, so changing it here would leave the two
+                disagreeing. The server enforces the same rule (409). */}
+            {canEdit && (
+              <button
+                className="btn py-1"
+                onClick={onEdit}
+                title={
+                  po.status === "REJECTED"
+                    ? "Fix and resubmit for approval"
+                    : "Edit the line items before it's approved"
+                }
+              >
+                ✎ Edit
+              </button>
+            )}
             {isAdmin && po.status === "PENDING" && (
               <>
                 <ProgressButton

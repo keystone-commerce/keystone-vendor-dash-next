@@ -28,8 +28,7 @@ enum VendorStatus {
   BLACKLISTED
 }
 
-
-enum InvoiceStatus {
+enum BillStatus {
   PAID
   UNPAID
   OVERDUE
@@ -62,35 +61,35 @@ model User {
 }
 
 model Vendor {
-  id             String         @id @default(uuid())
-  name           String
-  category       String
-  stage          VendorStage    @default(IN_TALKS)
-  status         VendorStatus   @default(ACTIVE)
-  contactName    String?
-  phone          String?
-  email          String?
-  contractValue  Int            @default(0)
-  rating         Int            @default(0)
-  contractStart  DateTime?
-  contractEnd    DateTime?
-  zohoVendorId   String?        @unique
-  notes          String?
+  id            String       @id @default(uuid())
+  name          String
+  category      String
+  stage         VendorStage  @default(IN_TALKS)
+  status        VendorStatus @default(ACTIVE)
+  contactName   String?
+  phone         String?
+  email         String?
+  contractValue Int          @default(0)
+  rating        Int          @default(0)
+  contractStart DateTime?
+  contractEnd   DateTime?
+  zohoVendorId  String?      @unique
+  notes         String?
 
   // GST details. gstin is entered by the user; the rest are filled from a GSTIN
   // lookup when one is configured (all optional so vendors work without GST).
-  gstin          String?        @unique
-  legalName      String?
-  tradeName      String?
-  gstAddress     String?
-  gstStateCode   String?
-  gstStatus      String?        // ACT | CNL | INA | PRO
-  gstFetchedAt   DateTime?
-  createdAt      DateTime       @default(now())
-  updatedAt      DateTime       @updatedAt
+  gstin        String?   @unique
+  legalName    String?
+  tradeName    String?
+  gstAddress   String?
+  gstStateCode String?
+  gstStatus    String? // ACT | CNL | INA | PRO
+  gstFetchedAt DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
 
   catalogues      Catalogue[]
-  invoices        Invoice[]
+  bills           Bill[]
   fileAssignments FileAssignment[]
   purchaseOrders  PurchaseOrder[]
 
@@ -134,15 +133,15 @@ model CatalogueItem {
   @@map("catalogue_items")
 }
 
-model Invoice {
+model Bill {
   id             String         @id @default(uuid())
   vendorId       String
   vendor         Vendor         @relation(fields: [vendorId], references: [id], onDelete: Cascade)
-  invoiceNumber  String
+  billNumber     String
   amount         Int            @default(0)
-  invoiceDate    DateTime       @default(now())
+  billDate       DateTime       @default(now())
   dueDate        DateTime?
-  status         InvoiceStatus  @default(UNPAID)
+  status         BillStatus     @default(UNPAID)
   driveFileId    String?        @unique
   zohoId         String?        @unique
   viewUrl        String?
@@ -154,7 +153,7 @@ model Invoice {
 
   @@index([vendorId])
   @@index([status])
-  @@map("invoices")
+  @@map("bills")
 }
 
 /// A purchase order raised in the dashboard. Approval happens here (app-owned);
@@ -182,22 +181,22 @@ model PurchaseOrder {
   @@map("purchase_orders")
 }
 
-/// Zoho invoices/bills that couldn't be matched to a vendor during sync — held here
+/// Zoho bills that couldn't be matched to a vendor during sync — held here
 /// (in the DB, not memory, so it survives serverless) until a human assigns them.
-model ZohoUnmatchedInvoice {
-  id            String        @id @default(uuid())
-  zohoId        String        @unique
-  invoiceNumber String
-  vendorName    String
-  zohoVendorId  String?
-  amount        Int           @default(0)
-  status        InvoiceStatus @default(UNPAID)
-  invoiceDate   DateTime      @default(now())
-  dueDate       DateTime?
-  viewUrl       String?
-  createdAt     DateTime      @default(now())
+model ZohoUnmatchedBill {
+  id           String     @id @default(uuid())
+  zohoId       String     @unique
+  billNumber   String
+  vendorName   String
+  zohoVendorId String?
+  amount       Int        @default(0)
+  status       BillStatus @default(UNPAID)
+  billDate     DateTime   @default(now())
+  dueDate      DateTime?
+  viewUrl      String?
+  createdAt    DateTime   @default(now())
 
-  @@map("zoho_unmatched_invoices")
+  @@map("zoho_unmatched_bills")
 }
 
 /// Drive catalogue files that couldn't be matched to a vendor during sync — held in

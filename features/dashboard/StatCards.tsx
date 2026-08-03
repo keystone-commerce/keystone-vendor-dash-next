@@ -53,9 +53,9 @@ export function StatCards({ stats }: { stats: DashboardStats }) {
         subtext="Across all vendors"
       />
       <StatCard
-        label="Invoiced (Paid)"
-        value={formatInr(t.invoicedPaid)}
-        subtext={`${t.totalInvoices} invoice(s) total`}
+        label="Billed (Paid)"
+        value={formatInr(t.billdPaid)}
+        subtext={`${t.totalBills} bill(s) total`}
         tone="green"
       />
       <StatCard

@@ -1,14 +1,14 @@
 export interface DriveFile {
   id: string;
   name: string;
-  kind: "catalogue" | "invoice";
+  kind: "catalogue" | "bill";
   webViewLink: string | null;
   modifiedTime: string;
 }
 
 export interface DriveUploadInput {
   vendorName: string;
-  kind: "catalogue" | "invoice";
+  kind: "catalogue" | "bill";
   uploadedAt: Date;
   originalFilename: string;
   mimeType: string;

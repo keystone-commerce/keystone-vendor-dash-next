@@ -61,12 +61,12 @@ export const VENDOR_CATEGORY_LABELS: Record<string, string> = Object.fromEntries
   VENDOR_CATEGORIES.map((c) => [c, c]),
 );
 
-export const InvoiceStatus = {
+export const BillStatus = {
   PAID: "PAID",
   UNPAID: "UNPAID",
   OVERDUE: "OVERDUE",
 } as const;
-export type InvoiceStatus = (typeof InvoiceStatus)[keyof typeof InvoiceStatus];
+export type BillStatus = (typeof BillStatus)[keyof typeof BillStatus];
 
 export const DocumentSource = {
   MANUAL_UPLOAD: "MANUAL_UPLOAD",
@@ -82,12 +82,19 @@ export const PurchaseOrderStatus = {
 } as const;
 export type PurchaseOrderStatus = (typeof PurchaseOrderStatus)[keyof typeof PurchaseOrderStatus];
 
-/** Which Zoho Books module invoices are read from. Bills = money vendors charge Keystone (default). */
-export const ZohoInvoiceSource = {
+/**
+ * Which Zoho Books module bills are read from. Bills = money vendors charge Keystone
+ * (default); invoices = the customer side.
+ *
+ * These are Zoho's own module names — do NOT rename the "invoices" value to "bills".
+ * It's the literal path segment used in the API URL and the value of
+ * ZOHO_INVOICE_SOURCE, so changing it collapses both options onto the same module.
+ */
+export const ZohoBillSource = {
   BILLS: "bills",
   INVOICES: "invoices",
 } as const;
-export type ZohoInvoiceSource = (typeof ZohoInvoiceSource)[keyof typeof ZohoInvoiceSource];
+export type ZohoBillSource = (typeof ZohoBillSource)[keyof typeof ZohoBillSource];
 
 export const UserRole = {
   ADMIN: "ADMIN",

@@ -12,7 +12,12 @@ export const zohoDc = () => process.env.ZOHO_DC ?? "in";
 export const accountsBase = () => `https://accounts.zoho.${zohoDc()}`;
 export const apiBase = () => `https://www.zohoapis.${zohoDc()}/books/v3`;
 export const organizationId = () => process.env.ZOHO_ORGANIZATION_ID ?? "";
-export const invoiceSource = (): "bills" | "invoices" =>
+/**
+ * Which Zoho module the dashboard syncs from. "bills" (supplier payables) is the
+ * procurement default — an approved PO is converted to a Bill in Zoho, which syncs
+ * back here. Set ZOHO_INVOICE_SOURCE="invoices" to read the customer side instead.
+ */
+export const syncModule = (): "bills" | "invoices" =>
   process.env.ZOHO_INVOICE_SOURCE === "invoices" ? "invoices" : "bills";
 
 export function invalidateToken() {

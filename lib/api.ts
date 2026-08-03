@@ -1,16 +1,16 @@
 import type {
   CatalogueDto,
-  InvoiceDto,
+  BillDto,
   PaginatedResult,
   UserDto,
   VendorDto,
   VendorStage,
   VendorStatus,
   VendorCategory,
-  InvoiceStatus,
+  BillStatus,
   ZohoStatusDto,
   ZohoSyncResultDto,
-  ZohoUnmatchedInvoiceDto,
+  ZohoUnmatchedBillDto,
   PurchaseOrderDto,
   PurchaseOrderStatus,
 } from "@shared";
@@ -128,31 +128,31 @@ export const cataloguesApi = {
   removeItem: (itemId: string) => api.delete(`/catalogue-items/${itemId}`),
 };
 
-// ── invoices ──────────────────────────────────────────────────────────────────
-export const invoicesApi = {
+// ── bills ──────────────────────────────────────────────────────────────────
+export const billsApi = {
   attach: (
     vendorId: string,
     input: {
-      invoiceNumber: string;
+      billNumber: string;
       amount: number; // paise
-      invoiceDate?: string;
-      status?: InvoiceStatus;
+      billDate?: string;
+      status?: BillStatus;
       driveFileId?: string;
       viewUrl?: string;
     },
-  ) => api.post<InvoiceDto>(`/vendors/${vendorId}/invoices`, input).then((r) => r.data),
+  ) => api.post<BillDto>(`/vendors/${vendorId}/bills`, input).then((r) => r.data),
   update: (
     id: string,
-    input: { invoiceNumber?: string; amount?: number; invoiceDate?: string; status?: InvoiceStatus },
-  ) => api.patch<InvoiceDto>(`/invoices/${id}`, input).then((r) => r.data),
-  remove: (id: string) => api.delete(`/invoices/${id}`),
+    input: { billNumber?: string; amount?: number; billDate?: string; status?: BillStatus },
+  ) => api.patch<BillDto>(`/bills/${id}`, input).then((r) => r.data),
+  remove: (id: string) => api.delete(`/bills/${id}`),
 };
 
 // ── drive ─────────────────────────────────────────────────────────────────────
 export interface UnassignedFile {
   fileId: string;
   name: string;
-  kind: "catalogue" | "invoice";
+  kind: "catalogue" | "bill";
   vendorToken: string;
   webViewLink: string | null;
   modifiedTime: string;
@@ -174,14 +174,14 @@ export const driveApi = {
 export const zohoApi = {
   sync: () => api.post<ZohoSyncResultDto>("/zoho/sync").then((r) => r.data),
   status: () => api.get<ZohoStatusDto>("/zoho/status").then((r) => r.data),
-  unmatched: () => api.get<ZohoUnmatchedInvoiceDto[]>("/zoho/unmatched").then((r) => r.data),
+  unmatched: () => api.get<ZohoUnmatchedBillDto[]>("/zoho/unmatched").then((r) => r.data),
   assign: (zohoId: string, vendorId: string) =>
     api.post(`/zoho/unmatched/${zohoId}/assign`, { vendorId }),
   /**
-   * Open a Zoho invoice PDF inline in a new tab. The endpoint is JWT-protected, so we
+   * Open a Zoho bill PDF inline in a new tab. The endpoint is JWT-protected, so we
    * fetch it as an authenticated blob (a plain link would 401) and open an object URL.
    */
-  viewInvoicePdf: async (zohoId: string) => {
+  viewBillPdf: async (zohoId: string) => {
     // Open the tab synchronously inside the click gesture — if we open it only after
     // the await below, the browser's popup blocker treats it as non-user-initiated and
     // silently blocks it (nothing opens). We point the placeholder tab at the PDF once
@@ -189,7 +189,7 @@ export const zohoApi = {
     // return null, and we need the handle to navigate the tab.)
     const tab = window.open("about:blank", "_blank");
     try {
-      const res = await api.get(`/zoho/invoices/${zohoId}/pdf`, { responseType: "blob" });
+      const res = await api.get(`/zoho/bills/${zohoId}/pdf`, { responseType: "blob" });
       const url = URL.createObjectURL(res.data as Blob);
       if (tab && !tab.closed) {
         tab.location.href = url;
@@ -257,6 +257,9 @@ export const purchaseOrdersApi = {
       .then((r) => r.data),
   create: (input: CreatePoInput) =>
     api.post<PurchaseOrderDto>("/purchase-orders", input).then((r) => r.data),
+  /** Edit a PENDING/REJECTED PO. Approved ones are refused server-side (409). */
+  update: (id: string, input: { poNumber?: string | null; lineItems?: PoLineItemInput[] }) =>
+    api.patch<PurchaseOrderDto>(`/purchase-orders/${id}`, input).then((r) => r.data),
   approve: (id: string) =>
     api.post<PurchaseOrderDto>(`/purchase-orders/${id}/approve`).then((r) => r.data),
   reject: (id: string, reason: string) =>
@@ -287,15 +290,15 @@ export interface DashboardStats {
     totalVendors: number;
     purchaseMade: number;
     totalContractValue: number;
-    invoicedPaid: number;
-    paidInvoiceCount: number;
+    billdPaid: number;
+    paidBillCount: number;
     outstanding: number;
     contractsExpiring: number;
-    totalInvoices: number;
+    totalBills: number;
   };
   pipeline: Record<VendorStage, number>;
   contractValueByCategory: { category: VendorCategory; value: number }[];
-  invoiceStatus: Record<InvoiceStatus, number>;
+  billStatus: Record<BillStatus, number>;
   topVendors: { id: string; name: string; contractValue: number }[];
 }
 export const dashboardApi = {

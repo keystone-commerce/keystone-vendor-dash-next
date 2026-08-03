@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import type { VendorDto, ZohoUnmatchedInvoiceDto } from "@shared";
+import type { VendorDto, ZohoUnmatchedBillDto } from "@shared";
 import { vendorsApi, zohoApi } from "@/lib/api";
 import { apiError } from "@/lib/api-client";
 import ProgressButton from "@/components/ui/progress-button";
@@ -9,7 +9,7 @@ import { formatInr } from "@shared";
 
 /**
  * Compact Zoho Books status chip: a live dot + name, with a popover holding the
- * "Sync invoices" action and the unmatched-invoice assignment flow. Designed to sit
+ * "Sync bills" action and the unmatched-bill assignment flow. Designed to sit
  * inline in the toolbar rather than as a full-width banner.
  */
 export function ZohoBanner() {
@@ -78,7 +78,7 @@ export function ZohoBanner() {
               <p className="text-xs text-muted">
                 {status?.lastSyncAt
                   ? `Last synced ${new Date(status.lastSyncAt).toLocaleString("en-IN")}.`
-                  : "Invoices sync automatically from Zoho Books."}
+                  : "Bills sync automatically from Zoho Books."}
               </p>
             </div>
             <ProgressButton
@@ -93,7 +93,7 @@ export function ZohoBanner() {
           {unmatched.length > 0 && (
             <div className="pt-3 border-t border-border space-y-2">
               <p className="text-sm font-medium text-rust-dark">
-                {unmatched.length} invoice(s) need to be linked to a vendor
+                {unmatched.length} bill(s) need to be linked to a vendor
               </p>
               <div className="max-h-72 overflow-y-auto space-y-2">
                 {unmatched.map((inv) => (
@@ -112,7 +112,7 @@ function UnmatchedRow({
   inv,
   onDone,
 }: {
-  inv: ZohoUnmatchedInvoiceDto;
+  inv: ZohoUnmatchedBillDto;
   onDone: () => void;
 }) {
   const [selectedVendor, setSelectedVendor] = useState("");
@@ -124,7 +124,7 @@ function UnmatchedRow({
   const assign = useMutation({
     mutationFn: () => zohoApi.assign(inv.zohoId, selectedVendor),
     onSuccess: () => {
-      toast.success(`Linked "${inv.invoiceNumber}" (${inv.vendorName})`);
+      toast.success(`Linked "${inv.billNumber}" (${inv.vendorName})`);
       onDone();
     },
     onError: (err) => toast.error(apiError(err, "Assign failed")),
@@ -133,7 +133,7 @@ function UnmatchedRow({
   return (
     <div className="flex flex-wrap items-center gap-2 bg-orange-light/40 rounded-keystone p-2">
       <span className="text-xs font-medium flex-1 min-w-0 truncate" title={inv.vendorName}>
-        <span className="chip bg-orange text-white mr-2">{inv.invoiceNumber}</span>
+        <span className="chip bg-orange text-white mr-2">{inv.billNumber}</span>
         {inv.vendorName} · {formatInr(inv.amount)} · {inv.status}
       </span>
       {inv.viewUrl && (

@@ -4,7 +4,7 @@ import { Providers } from "./providers";
 
 export const metadata: Metadata = {
   title: "Keystone Vendor Dashboard",
-  description: "Procurement pipeline, catalogues, invoices & purchase orders.",
+  description: "Procurement pipeline, catalogues, bills & purchase orders.",
 };
 
 /**

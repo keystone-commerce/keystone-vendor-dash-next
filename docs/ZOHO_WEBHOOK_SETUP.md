@@ -102,14 +102,50 @@ Click **Create**, pick your **organization/portal**, then copy the **grant code*
 <details>
 <summary>Narrower scopes instead of full access</summary>
 
-The app reads bills/invoices and creates contacts, items and purchase orders, so:
+Paste this as the scope (comma-separated, no spaces):
 
 ```text
-ZohoBooks.invoices.READ,ZohoBooks.bills.READ,ZohoBooks.contacts.CREATE,
-ZohoBooks.contacts.READ,ZohoBooks.items.CREATE,ZohoBooks.items.READ,
-ZohoBooks.purchaseorders.CREATE,ZohoBooks.purchaseorders.READ,
-ZohoBooks.settings.READ
+ZohoBooks.bills.READ,ZohoBooks.bills.CREATE,ZohoBooks.purchaseorders.READ,
+ZohoBooks.purchaseorders.CREATE,ZohoBooks.contacts.READ,ZohoBooks.contacts.CREATE,
+ZohoBooks.settings.READ,ZohoBooks.settings.CREATE,ZohoBooks.accountants.READ
 ```
+
+Every Zoho call the app makes, and the scope it needs:
+
+| Endpoint | Scope | Used for |
+|---|---|---|
+| `GET /bills` | `bills.READ` | Sync bills into the dashboard |
+| `GET /bills/{id}?accept=pdf` | `bills.READ` | Bill PDF |
+| `POST /bills` | `bills.CREATE` | Convert an approved PO into a Bill |
+| `POST /purchaseorders` | `purchaseorders.CREATE` | Create the PO in Zoho on approval |
+| `GET /purchaseorders/{id}?accept=pdf` | `purchaseorders.READ` | PO PDF |
+| `GET /contacts?contact_type=vendor` | `contacts.READ` | List Zoho vendors when linking |
+| `POST /contacts` | `contacts.CREATE` | "Create in Zoho & link" on a vendor |
+| `GET /items?search_text=…` | `settings.READ` | Find an existing product before adding a PO line |
+| `POST /items` | `settings.CREATE` | Create the product if it isn't in Zoho yet |
+| `GET /chartofaccounts` | `accountants.READ` | Pick the expense/COGS account a new item posts to |
+
+**Not in the list, on purpose:** `POST /purchaseorders/{id}/email`. Zoho can email a PO
+itself, but it sends *its* plain PDF. The vendor gets our Keystone letterhead PDF
+instead, sent through Gmail — so `createZohoPurchaseOrder()` is called without
+`emailTo` and that endpoint never fires. No scope is needed for it. All outbound mail
+(login codes, approval requests, the vendor's PO) goes through the `GMAIL_OAUTH_*`
+credentials, which are independent of Zoho.
+
+Two of these are easy to get wrong, because the scope name doesn't match the endpoint
+name — both are per Zoho's
+[official scope table](https://www.zoho.com/books/api/v3/oauth/#scopes):
+
+> - **Items use `settings`, not `items`.** There is no `ZohoBooks.items.*` scope. The
+>   `settings` scope covers "Items, Expense Categories, Users, Taxes, Currencies, and
+>   Opening Balances".
+> - **Chart of accounts uses `accountants`, not `settings`.** `/chartofaccounts`
+>   belongs to the Accountant module. Without `ZohoBooks.accountants.READ`, approving a
+>   PO fails when it tries to resolve the purchase account for a new item.
+
+> ⚠️ Add `ZohoBooks.invoices.READ` **only** if you set `ZOHO_INVOICE_SOURCE="invoices"`
+> to read customer invoices instead of supplier bills. The procurement flow uses bills,
+> so it isn't needed by default.
 
 `fullaccess.all` is simpler and is what most setups use.
 </details>
@@ -166,7 +202,7 @@ ZOHO_CLIENT_ID="1000.XXXX"
 ZOHO_CLIENT_SECRET="xxxx"
 ZOHO_REFRESH_TOKEN="1000.yyyy"
 ZOHO_ORGANIZATION_ID="60000000000"
-ZOHO_INVOICE_SOURCE="invoices"      # "invoices" (customer) or "bills" (vendor)
+ZOHO_INVOICE_SOURCE="bills"      # "invoices" (customer) or "bills" (vendor)
 ```
 
 Locally these go in `.env`; in production, **Vercel → Settings → Environment

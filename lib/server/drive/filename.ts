@@ -1,13 +1,13 @@
 /**
  * Drive filename parser. Filenames should look like:
- *   "<Vendor Name> - <Catalogue|Invoice> - <YYYY-MM-DD> - <original.pdf>"
+ *   "<Vendor Name> - <Catalogue|Bill> - <YYYY-MM-DD> - <original.pdf>"
  * The separator may be hyphen, en dash, or em dash — with a space on at least one side.
  * This is lenient (a hyphen with NO surrounding spaces, e.g. "2026-01-01", does NOT split).
  */
 
 const SEPARATOR_RE = /\s*[—–-]\s+|\s+[—–-]\s*/;
 
-export type DriveFileKind = "catalogue" | "invoice";
+export type DriveFileKind = "catalogue" | "bill";
 
 export interface ParsedDriveFilename {
   vendorToken: string;
@@ -42,7 +42,7 @@ export function parseDriveFilename(
 
   let kind: DriveFileKind;
   if (kindPart === "catalogue" || kindPart === "catalog") kind = "catalogue";
-  else if (kindPart === "invoice") kind = "invoice";
+  else if (kindPart === "bill") kind = "bill";
   else return null;
 
   if (kind !== expectedKind) return null;
@@ -63,7 +63,7 @@ export function buildDriveFilename(input: {
   uploadedAt: Date;
   originalFilename: string;
 }): string {
-  const kindLabel = input.kind === "catalogue" ? "Catalogue" : "Invoice";
+  const kindLabel = input.kind === "catalogue" ? "Catalogue" : "Bill";
   const date = input.uploadedAt.toISOString().slice(0, 10);
   return `${input.vendorName} — ${kindLabel} — ${date} — ${input.originalFilename}`;
 }

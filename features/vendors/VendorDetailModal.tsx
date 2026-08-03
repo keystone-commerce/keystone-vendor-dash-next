@@ -2,12 +2,12 @@ import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
-  InvoiceDto,
-  InvoiceStatus,
+  BillDto,
+  BillStatus,
   VENDOR_CATEGORY_LABELS,
   formatInr,
 } from "@shared";
-import { cataloguesApi, invoicesApi, vendorsApi, zohoApi } from "@/lib/api";
+import { cataloguesApi, billsApi, vendorsApi, zohoApi } from "@/lib/api";
 import { apiError } from "@/lib/api-client";
 import { useAuthStore } from "@/lib/auth-store";
 import ProgressButton from "@/components/ui/progress-button";
@@ -20,7 +20,18 @@ interface Props {
   onClose: () => void;
 }
 
-type Tab = "overview" | "catalogues" | "invoices";
+type Tab = "overview" | "catalogues" | "bills";
+
+/**
+ * Displayed labels. The "bills" tab shows Zoho **Bills** (supplier payables) —
+ * an approved PO is converted to a Bill in Zoho and syncs back here. The internal
+ * identifier stays "bills" so the data model and API don't need renaming.
+ */
+const TAB_LABELS: Record<Tab, string> = {
+  overview: "Overview",
+  catalogues: "Catalogues",
+  bills: "Bills",
+};
 
 export function VendorDetailModal({ vendorId, onClose }: Props) {
   const [tab, setTab] = useState<Tab>("overview");
@@ -39,19 +50,19 @@ export function VendorDetailModal({ vendorId, onClose }: Props) {
             {VENDOR_CATEGORY_LABELS[vendor.category]} · {vendor.status}
           </div>
           <div className="flex gap-2 border-b border-border mb-4">
-            {(["overview", "catalogues", "invoices"] as Tab[]).map((t) => (
+            {(["overview", "catalogues", "bills"] as Tab[]).map((t) => (
               <button
                 key={t}
-                className={`px-3 py-2 text-sm font-medium border-b-2 -mb-px capitalize ${
+                className={`px-3 py-2 text-sm font-medium border-b-2 -mb-px ${
                   tab === t
                     ? "border-orange text-orange-deep"
                     : "border-transparent text-muted hover:text-ink"
                 }`}
                 onClick={() => setTab(t)}
               >
-                {t}{" "}
+                {TAB_LABELS[t]}{" "}
                 {t === "catalogues" && <>({vendor.catalogues?.length ?? 0})</>}
-                {t === "invoices" && <>({vendor.invoices?.length ?? 0})</>}
+                {t === "bills" && <>({vendor.bills?.length ?? 0})</>}
               </button>
             ))}
           </div>
@@ -59,8 +70,8 @@ export function VendorDetailModal({ vendorId, onClose }: Props) {
           {tab === "catalogues" && (
             <CataloguesTab vendorId={vendor.id} catalogues={vendor.catalogues ?? []} />
           )}
-          {tab === "invoices" && (
-            <InvoicesTab vendorId={vendor.id} invoices={vendor.invoices ?? []} />
+          {tab === "bills" && (
+            <BillsTab vendorId={vendor.id} bills={vendor.bills ?? []} />
           )}
         </>
       )}
@@ -260,7 +271,15 @@ function CataloguesTab({
                 <input className="input py-1" placeholder="Product name" value={r.name} onChange={(e) => updateRow(i, { name: e.target.value })} />
                 <input className="input py-1" placeholder="pcs" value={r.unit} onChange={(e) => updateRow(i, { unit: e.target.value })} />
                 <input className="input py-1" type="number" min={0} placeholder="Price" value={r.price} onChange={(e) => updateRow(i, { price: Number(e.target.value) })} />
-                <input className="input py-1" placeholder="HSN" value={r.hsn} onChange={(e) => updateRow(i, { hsn: e.target.value })} />
+                {/* HSN codes are numeric (4, 6 or 8 digits) — strip anything else. */}
+                <input
+                  className="input py-1"
+                  placeholder="HSN"
+                  inputMode="numeric"
+                  maxLength={8}
+                  value={r.hsn}
+                  onChange={(e) => updateRow(i, { hsn: e.target.value.replace(/\D/g, "").slice(0, 8) })}
+                />
                 <button type="button" className="btn-danger py-1 px-2" title="Remove" disabled={rows.length === 1} onClick={() => setRows((rs) => rs.filter((_, idx) => idx !== i))}>×</button>
               </div>
             ))}
@@ -284,7 +303,7 @@ function CataloguesTab({
   );
 }
 
-function StatusBadge({ status }: { status: InvoiceStatus }) {
+function StatusBadge({ status }: { status: BillStatus }) {
   const cls =
     status === "PAID"
       ? "bg-keystone-green/10 text-keystone-green"
@@ -294,31 +313,31 @@ function StatusBadge({ status }: { status: InvoiceStatus }) {
   return <span className={`chip ${cls} text-[11px] capitalize`}>{status.toLowerCase()}</span>;
 }
 
-function InvoicesTab({
+function BillsTab({
   vendorId,
-  invoices,
+  bills,
 }: {
   vendorId: string;
-  invoices: InvoiceDto[];
+  bills: BillDto[];
 }) {
   const qc = useQueryClient();
   // "Open in Zoho" is Admin-only: it deep-links into Zoho Books, which non-admins
   // generally can't access (they'd just land on a Zoho login page).
   const isAdmin = useAuthStore((s) => s.user?.role) === "ADMIN";
-  const [invoiceNumber, setInvoiceNumber] = useState("");
+  const [billNumber, setBillNumber] = useState("");
   const [amount, setAmount] = useState<number>(0);
-  const [status, setStatus] = useState<InvoiceStatus>("UNPAID");
+  const [status, setStatus] = useState<BillStatus>("UNPAID");
 
   const attach = useMutation({
     mutationFn: () =>
-      invoicesApi.attach(vendorId, {
-        invoiceNumber,
+      billsApi.attach(vendorId, {
+        billNumber,
         amount: Math.round(amount * 100),
         status,
       }),
     onSuccess: () => {
-      toast.success("Invoice added.");
-      setInvoiceNumber("");
+      toast.success("Bill added.");
+      setBillNumber("");
       setAmount(0);
       setStatus("UNPAID");
       qc.invalidateQueries();
@@ -327,22 +346,22 @@ function InvoicesTab({
   });
 
   const remove = useMutation({
-    mutationFn: (id: string) => invoicesApi.remove(id),
+    mutationFn: (id: string) => billsApi.remove(id),
     onSuccess: () => {
-      toast("Invoice removed.");
+      toast("Bill removed.");
       qc.invalidateQueries();
     },
     onError: (err) => toast.error(apiError(err, "Delete failed")),
   });
 
   const patch = useMutation({
-    mutationFn: (input: { id: string; amount?: number; status?: InvoiceStatus }) =>
-      invoicesApi.update(input.id, {
+    mutationFn: (input: { id: string; amount?: number; status?: BillStatus }) =>
+      billsApi.update(input.id, {
         amount: input.amount !== undefined ? Math.round(input.amount * 100) : undefined,
         status: input.status,
       }),
     onSuccess: () => {
-      toast.success("Invoice updated.");
+      toast.success("Bill updated.");
       qc.invalidateQueries();
     },
     onError: (err) => toast.error(apiError(err, "Update failed")),
@@ -351,20 +370,20 @@ function InvoicesTab({
   return (
     <div className="space-y-4">
       <ul className="space-y-2">
-        {invoices.length === 0 && <li className="text-sm text-muted">No invoices yet.</li>}
-        {invoices.map((inv) => {
+        {bills.length === 0 && <li className="text-sm text-muted">No bills yet.</li>}
+        {bills.map((inv) => {
           const fromZoho = inv.source === "ZOHO_SYNC";
           return (
             <li key={inv.id} className="flex items-center gap-2 border border-border rounded-keystone p-2">
               <div className="flex-1 min-w-0">
                 <div className="text-sm font-medium truncate flex items-center gap-2">
-                  {inv.invoiceNumber}
+                  {inv.billNumber}
                   {fromZoho && (
                     <span className="chip bg-keystone-blue/10 text-keystone-blue text-[10px]">Zoho</span>
                   )}
                 </div>
                 <div className="text-xs text-muted">
-                  {formatDate(inv.invoiceDate)}
+                  {formatDate(inv.billDate)}
                   {inv.dueDate && <> · due {formatDate(inv.dueDate)}</>} ·{" "}
                   {inv.source.replace("_", " ").toLowerCase()}
                 </div>
@@ -390,7 +409,7 @@ function InvoicesTab({
                     className="input py-1 max-w-[130px]"
                     defaultValue={inv.status}
                     onChange={(e) =>
-                      patch.mutate({ id: inv.id, status: e.target.value as InvoiceStatus })
+                      patch.mutate({ id: inv.id, status: e.target.value as BillStatus })
                     }
                   >
                     <option value="PAID">Paid</option>
@@ -402,10 +421,10 @@ function InvoicesTab({
               {inv.zohoId && (
                 <button
                   className="btn py-1"
-                  title="View the invoice PDF from Zoho"
+                  title="View the bill PDF from Zoho"
                   onClick={async () => {
                     try {
-                      await zohoApi.viewInvoicePdf(inv.zohoId!);
+                      await zohoApi.viewBillPdf(inv.zohoId!);
                     } catch (err) {
                       toast.error(apiError(err, "Could not load the PDF"));
                     }
@@ -442,11 +461,11 @@ function InvoicesTab({
         }}
       >
         <label className="block md:col-span-2">
-          <span className="label">Invoice number</span>
+          <span className="label">Bill number</span>
           <input
             className="input mt-1"
-            value={invoiceNumber}
-            onChange={(e) => setInvoiceNumber(e.target.value)}
+            value={billNumber}
+            onChange={(e) => setBillNumber(e.target.value)}
             required
           />
         </label>
@@ -466,7 +485,7 @@ function InvoicesTab({
           <select
             className="input mt-1"
             value={status}
-            onChange={(e) => setStatus(e.target.value as InvoiceStatus)}
+            onChange={(e) => setStatus(e.target.value as BillStatus)}
           >
             <option value="PAID">Paid</option>
             <option value="UNPAID">Unpaid</option>
@@ -475,7 +494,7 @@ function InvoicesTab({
         </label>
         <ProgressButton
           type="submit"
-          label="Add invoice"
+          label="Add bill"
           loadingLabel="Adding…"
           loading={attach.isPending}
           className="md:col-span-4 !rounded-keystone h-[38px] text-sm"

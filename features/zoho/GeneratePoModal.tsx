@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
-import type { VendorDto } from "@shared";
+import type { PurchaseOrderDto, VendorDto } from "@shared";
 import { Modal } from "@/components/Modal";
 import { vendorsApi, purchaseOrdersApi, PoLineItemInput } from "@/lib/api";
 import { apiError } from "@/lib/api-client";
@@ -12,6 +12,12 @@ interface Props {
   onClose: () => void;
   /** Optional: preselect this dashboard vendor (uses its Zoho vendor id). */
   initialVendorId?: string;
+  /**
+   * Pass an existing PO to edit it instead of creating a new one. Only PENDING and
+   * REJECTED POs are editable — the vendor is fixed once raised, so the picker is
+   * locked in this mode and only the line items / PO number can change.
+   */
+  editing?: PurchaseOrderDto;
 }
 
 interface LineRow {
@@ -42,17 +48,44 @@ const num = (v: unknown): number => {
   return Number.isFinite(n) && n > 0 ? n : 0;
 };
 
-export function GeneratePoModal({ onClose, initialVendorId }: Props) {
+/**
+ * A row the user actually filled in. Blank spare rows are dropped on submit, so this
+ * decides what counts as a real line — deliberately NOT including itemCode: a missing
+ * code must block the submit with a message, not silently discard the line.
+ */
+const isRealRow = (r: LineRow) => Boolean(r.name.trim()) && num(r.quantity) > 0 && num(r.rate) > 0;
+
+/** Existing PO line items -> editable rows (defaults fill anything an older PO lacks). */
+const rowsFromPo = (po: PurchaseOrderDto): LineRow[] => {
+  const items = (po.lineItems ?? []) as any[];
+  if (!items.length) return [emptyRow()];
+  return items.map((li) => ({
+    itemCode: li.itemCode ?? "",
+    name: li.name ?? "",
+    brand: li.brand ?? "",
+    hsn: li.hsn ?? "",
+    quantity: Number(li.quantity) || 1,
+    uom: li.uom ?? "EA",
+    rate: Number(li.rate) || 0,
+    gstPercent: li.gstPercent != null ? Number(li.gstPercent) : 18,
+  }));
+};
+
+export function GeneratePoModal({ onClose, initialVendorId, editing }: Props) {
+  const isEdit = Boolean(editing);
   const { data: vendorsPage } = useQuery({
     queryKey: ["vendors", "po-picker"],
     queryFn: () => vendorsApi.list({ pageSize: 200 }),
   });
   const vendors = vendorsPage?.items ?? [];
 
-  const [dashboardVendorId, setDashboardVendorId] = useState(initialVendorId ?? "");
-  const [zohoVendorId, setZohoVendorId] = useState("");
-  const [poNumber, setPoNumber] = useState("");
-  const [rows, setRows] = useState<LineRow[]>([emptyRow()]);
+  // In edit mode everything is prefilled from the existing PO.
+  const [dashboardVendorId, setDashboardVendorId] = useState(
+    editing?.vendorId ?? initialVendorId ?? "",
+  );
+  const [zohoVendorId, setZohoVendorId] = useState(editing?.zohoVendorId ?? "");
+  const [poNumber, setPoNumber] = useState(editing?.poNumber ?? "");
+  const [rows, setRows] = useState<LineRow[]>(editing ? rowsFromPo(editing) : [emptyRow()]);
 
   // Load the picked vendor's full detail (incl. catalogue items) so we can offer a picker.
   const { data: vendorDetail } = useQuery({
@@ -114,17 +147,25 @@ export function GeneratePoModal({ onClose, initialVendorId }: Props) {
       // every number is coerced through `num()` so a cleared/partial field can never
       // send NaN (which serializes to null) to the server.
       const lineItems: PoLineItemInput[] = rows
-        .filter((r) => r.name.trim() && num(r.quantity) > 0 && num(r.rate) > 0)
+        .filter(isRealRow)
         .map((r) => ({
           name: r.name.trim(),
           quantity: num(r.quantity),
           rate: num(r.rate),
           hsn: r.hsn.trim() || undefined,
           gstPercent: num(r.gstPercent),
-          itemCode: r.itemCode.trim() || undefined,
+          itemCode: r.itemCode.trim(),
           brand: r.brand.trim() || undefined,
           uom: r.uom.trim() || undefined,
         }));
+      // Editing only changes the line items / PO number; the vendor is fixed once
+      // raised. Editing a REJECTED PO puts it back to PENDING server-side.
+      if (editing) {
+        return purchaseOrdersApi.update(editing.id, {
+          poNumber: poNumber.trim() || null,
+          lineItems,
+        });
+      }
       // Submit for approval — the PO is created in the dashboard as PENDING. It only
       // goes to Zoho + the vendor after an Admin approves it.
       return purchaseOrdersApi.create({
@@ -134,18 +175,31 @@ export function GeneratePoModal({ onClose, initialVendorId }: Props) {
       });
     },
     onSuccess: () => {
-      toast.success("Purchase Order submitted for approval.");
+      toast.success(
+        editing
+          ? editing.status === "REJECTED"
+            ? "Purchase Order updated and resubmitted for approval."
+            : "Purchase Order updated — approvers have been re-notified."
+          : "Purchase Order submitted for approval.",
+      );
       onClose();
     },
-    onError: (err) => toast.error(apiError(err, "Could not submit the Purchase Order")),
+    onError: (err) =>
+      toast.error(apiError(err, editing ? "Could not update the Purchase Order" : "Could not submit the Purchase Order")),
   });
 
+  const realRows = rows.filter(isRealRow);
+  // Every filled-in line needs an Item Code — flagged here rather than dropping the row.
+  const missingItemCode = realRows.filter((r) => !r.itemCode.trim());
   const canSubmit =
-    dashboardVendorId.length > 0 &&
-    rows.some((r) => r.name.trim() && num(r.quantity) > 0 && num(r.rate) > 0);
+    dashboardVendorId.length > 0 && realRows.length > 0 && missingItemCode.length === 0;
 
   return (
-    <Modal title="Submit Purchase Order for approval" onClose={onClose} maxWidthClass="max-w-6xl">
+    <Modal
+      title={isEdit ? `Edit Purchase Order${editing?.poNumber ? " " + editing.poNumber : ""}` : "Submit Purchase Order for approval"}
+      onClose={onClose}
+      maxWidthClass="max-w-6xl"
+    >
       <form
         className="space-y-4"
         onSubmit={(e) => {
@@ -157,8 +211,12 @@ export function GeneratePoModal({ onClose, initialVendorId }: Props) {
           <label className="block">
             <span className="label">Vendor *</span>
             <select
-              className="input mt-1"
+              className="input mt-1 disabled:opacity-60 disabled:cursor-not-allowed"
               value={dashboardVendorId}
+              // The vendor is fixed once a PO is raised — changing it would make the
+              // Zoho link and any approval already in flight meaningless.
+              disabled={isEdit}
+              title={isEdit ? "The vendor can't be changed after the PO is raised" : undefined}
               onChange={(e) => onPickVendor(e.target.value)}
             >
               <option value="">Select vendor…</option>
@@ -230,7 +288,7 @@ export function GeneratePoModal({ onClose, initialVendorId }: Props) {
           <div className="space-y-1.5">
             {/* header labels (shown once) */}
             <div className="grid grid-cols-[90px_minmax(160px,1fr)_1fr_80px_60px_64px_100px_70px_40px] gap-2 px-1 text-[10px] uppercase tracking-wide text-muted">
-              <span>Item Code</span>
+              <span>Item Code *</span>
               <span>Product Description</span>
               <span>Brand</span>
               <span>HSN</span>
@@ -245,10 +303,23 @@ export function GeneratePoModal({ onClose, initialVendorId }: Props) {
                 key={i}
                 className="grid grid-cols-[90px_minmax(160px,1fr)_1fr_80px_60px_64px_100px_70px_40px] gap-2 items-center"
               >
+                {/* Required on rows that are actually filled in, but deliberately NOT
+                    native `required`: that would also block submit on a blank spare row
+                    the user added and changed their mind about. `missingItemCode` gates
+                    it per real row instead, and says which item is missing one. */}
                 <input className="input py-1" placeholder="Code" value={r.itemCode} onChange={(e) => updateRow(i, { itemCode: e.target.value })} />
                 <input className="input py-1" placeholder="Product name" value={r.name} onChange={(e) => updateRow(i, { name: e.target.value })} />
                 <input className="input py-1" placeholder="Brand" value={r.brand} onChange={(e) => updateRow(i, { brand: e.target.value })} />
-                <input className="input py-1" placeholder="HSN" value={r.hsn} onChange={(e) => updateRow(i, { hsn: e.target.value })} />
+                {/* HSN codes are numeric (4, 6 or 8 digits) — strip anything else as
+                    it's typed so letters can never reach the PDF or Zoho. */}
+                <input
+                  className="input py-1"
+                  placeholder="HSN"
+                  inputMode="numeric"
+                  maxLength={8}
+                  value={r.hsn}
+                  onChange={(e) => updateRow(i, { hsn: e.target.value.replace(/\D/g, "").slice(0, 8) })}
+                />
                 <input className="input py-1" type="number" min={0} value={r.quantity} onChange={(e) => updateRow(i, { quantity: Number(e.target.value) })} />
                 <input className="input py-1" placeholder="EA" value={r.uom} onChange={(e) => updateRow(i, { uom: e.target.value })} />
                 <input className="input py-1" type="number" min={0} value={r.rate} onChange={(e) => updateRow(i, { rate: Number(e.target.value) })} />
@@ -265,6 +336,12 @@ export function GeneratePoModal({ onClose, initialVendorId }: Props) {
               </div>
             ))}
           </div>
+          {missingItemCode.length > 0 && (
+            <div className="text-xs text-keystone-amber mt-2">
+              ⚠ Item Code is required on every line — missing on{" "}
+              {missingItemCode.map((r) => `"${r.name.trim()}"`).join(", ")}.
+            </div>
+          )}
         </div>
 
         <div className="flex items-center justify-between pt-3 border-t border-border">
@@ -287,8 +364,8 @@ export function GeneratePoModal({ onClose, initialVendorId }: Props) {
                 actual submit rather than a timer. */}
             <ProgressButton
               type="submit"
-              label="Submit for approval"
-              loadingLabel="Submitting…"
+              label={isEdit ? (editing?.status === "REJECTED" ? "Save & resubmit" : "Save changes") : "Submit for approval"}
+              loadingLabel={isEdit ? "Saving…" : "Submitting…"}
               loading={create.isPending}
               disabled={!canSubmit}
               className="!rounded-keystone h-[38px] text-sm"

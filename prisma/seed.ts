@@ -67,7 +67,7 @@ async function main() {
       contractStart: daysFromNow(-60),
       contractEnd: daysFromNow(300),
       catalogues: 0,
-      invoices: [] as { number: string; amount: number; status: "PAID" | "UNPAID" | "OVERDUE" }[],
+      bills: [] as { number: string; amount: number; status: "PAID" | "UNPAID" | "OVERDUE" }[],
     },
     {
       name: "OfficeMart Supplies",
@@ -81,7 +81,7 @@ async function main() {
       contractStart: daysFromNow(-30),
       contractEnd: daysFromNow(20), // expiring within 30 days
       catalogues: 0,
-      invoices: [],
+      bills: [],
     },
     {
       name: "Falcon Raw Materials Co.",
@@ -93,7 +93,7 @@ async function main() {
       contractValue: 0,
       rating: 0,
       catalogues: 0,
-      invoices: [],
+      bills: [],
     },
     {
       name: "NimbusTech IT Solutions",
@@ -107,7 +107,7 @@ async function main() {
       contractStart: daysFromNow(-90),
       contractEnd: daysFromNow(280),
       catalogues: 1,
-      invoices: [],
+      bills: [],
     },
     {
       name: "Vertex Marketing Agency",
@@ -121,7 +121,7 @@ async function main() {
       contractStart: daysFromNow(-15),
       contractEnd: daysFromNow(25), // expiring within 30 days
       catalogues: 1,
-      invoices: [],
+      bills: [],
     },
     {
       name: "Sunrise Textiles Pvt Ltd",
@@ -135,7 +135,7 @@ async function main() {
       contractStart: daysFromNow(-120),
       contractEnd: daysFromNow(240),
       catalogues: 0,
-      invoices: [
+      bills: [
         { number: "INV-2001", amount: rup(400_000), status: "PAID" as const },
         { number: "INV-2002", amount: rup(230_000), status: "PAID" as const },
       ],
@@ -152,7 +152,7 @@ async function main() {
       contractStart: daysFromNow(-45),
       contractEnd: daysFromNow(320),
       catalogues: 0,
-      invoices: [{ number: "INV-2003", amount: rup(175_000), status: "UNPAID" as const }],
+      bills: [{ number: "INV-2003", amount: rup(175_000), status: "UNPAID" as const }],
     },
     {
       name: "Crestline Consulting",
@@ -166,12 +166,12 @@ async function main() {
       contractStart: daysFromNow(-75),
       contractEnd: daysFromNow(180),
       catalogues: 0,
-      invoices: [{ number: "INV-2004", amount: rup(87_500), status: "OVERDUE" as const }],
+      bills: [{ number: "INV-2004", amount: rup(87_500), status: "OVERDUE" as const }],
     },
   ];
 
   // wipe existing vendor-side data for idempotent seeding
-  await prisma.invoice.deleteMany({});
+  await prisma.bill.deleteMany({});
   await prisma.catalogue.deleteMany({});
   await prisma.fileAssignment.deleteMany({});
   await prisma.ignoredFile.deleteMany({});
@@ -203,11 +203,11 @@ async function main() {
         },
       });
     }
-    for (const inv of v.invoices) {
-      await prisma.invoice.create({
+    for (const inv of v.bills) {
+      await prisma.bill.create({
         data: {
           vendorId: created.id,
-          invoiceNumber: inv.number,
+          billNumber: inv.number,
           amount: inv.amount,
           status: inv.status,
           source: "MANUAL_UPLOAD",

@@ -1,16 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireUser, HttpError } from "@/lib/server/auth";
-import { getInvoicePdf } from "@/lib/server/zoho/service";
+import { getBillPdf } from "@/lib/server/zoho/service";
 
 export async function GET(req: NextRequest, { params }: { params: { zohoId: string } }) {
   try {
     requireUser(req);
     const download = req.nextUrl.searchParams.get("download") === "true";
-    const pdf = await getInvoicePdf(params.zohoId);
+    const pdf = await getBillPdf(params.zohoId);
     return new NextResponse(new Uint8Array(pdf), {
       headers: {
         "Content-Type": "application/pdf",
-        "Content-Disposition": `${download ? "attachment" : "inline"}; filename="invoice_${params.zohoId}.pdf"`,
+        "Content-Disposition": `${download ? "attachment" : "inline"}; filename="bill_${params.zohoId}.pdf"`,
       },
     });
   } catch (err) {
