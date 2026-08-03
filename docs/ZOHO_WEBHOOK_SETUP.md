@@ -102,28 +102,40 @@ Click **Create**, pick your **organization/portal**, then copy the **grant code*
 <details>
 <summary>Narrower scopes instead of full access</summary>
 
-Paste this as the scope (no spaces, comma-separated):
+Paste this as the scope (comma-separated, no spaces):
 
 ```text
-ZohoBooks.bills.READ,ZohoBooks.bills.CREATE,ZohoBooks.contacts.READ,
-ZohoBooks.contacts.CREATE,ZohoBooks.items.READ,ZohoBooks.items.CREATE,
-ZohoBooks.purchaseorders.READ,ZohoBooks.purchaseorders.CREATE,
-ZohoBooks.settings.READ
+ZohoBooks.bills.READ,ZohoBooks.bills.CREATE,ZohoBooks.purchaseorders.READ,
+ZohoBooks.purchaseorders.CREATE,ZohoBooks.contacts.READ,ZohoBooks.contacts.CREATE,
+ZohoBooks.settings.READ,ZohoBooks.settings.CREATE,ZohoBooks.accountants.READ
 ```
 
-Why each one is needed — every Zoho call the app makes:
+Every Zoho call the app makes, and the scope it needs:
 
-| Scope | Used for |
-|---|---|
-| `bills.READ` | Sync bills into the dashboard; fetch a bill PDF |
-| `bills.CREATE` | Convert an approved PO into a Bill |
-| `contacts.READ` | List Zoho vendors when linking |
-| `contacts.CREATE` | "Create in Zoho & link" on a vendor |
-| `items.READ` | Find an existing product before adding a PO line |
-| `items.CREATE` | Create the product if it isn't in Zoho yet |
-| `purchaseorders.READ` | Fetch the PO back from Zoho |
-| `purchaseorders.CREATE` | Create the PO on approval, and email it to the vendor |
-| `settings.READ` | Read the chart of accounts to pick the expense/COGS account a new item posts to |
+| Endpoint | Scope | Used for |
+|---|---|---|
+| `GET /bills` | `bills.READ` | Sync bills into the dashboard |
+| `GET /bills/{id}?accept=pdf` | `bills.READ` | Bill PDF |
+| `POST /bills` | `bills.CREATE` | Convert an approved PO into a Bill |
+| `POST /purchaseorders` | `purchaseorders.CREATE` | Create the PO in Zoho on approval |
+| `GET /purchaseorders/{id}?accept=pdf` | `purchaseorders.READ` | PO PDF |
+| `POST /purchaseorders/{id}/email` | `purchaseorders.CREATE` | Email the PO to the vendor |
+| `GET /contacts?contact_type=vendor` | `contacts.READ` | List Zoho vendors when linking |
+| `POST /contacts` | `contacts.CREATE` | "Create in Zoho & link" on a vendor |
+| `GET /items?search_text=…` | `settings.READ` | Find an existing product before adding a PO line |
+| `POST /items` | `settings.CREATE` | Create the product if it isn't in Zoho yet |
+| `GET /chartofaccounts` | `accountants.READ` | Pick the expense/COGS account a new item posts to |
+
+Two of these are easy to get wrong, because the scope name doesn't match the endpoint
+name — both are per Zoho's
+[official scope table](https://www.zoho.com/books/api/v3/oauth/#scopes):
+
+> - **Items use `settings`, not `items`.** There is no `ZohoBooks.items.*` scope. The
+>   `settings` scope covers "Items, Expense Categories, Users, Taxes, Currencies, and
+>   Opening Balances".
+> - **Chart of accounts uses `accountants`, not `settings`.** `/chartofaccounts`
+>   belongs to the Accountant module. Without `ZohoBooks.accountants.READ`, approving a
+>   PO fails when it tries to resolve the purchase account for a new item.
 
 > ⚠️ Add `ZohoBooks.invoices.READ` **only** if you set `ZOHO_INVOICE_SOURCE="invoices"`
 > to read customer invoices instead of supplier bills. The procurement flow uses bills,
