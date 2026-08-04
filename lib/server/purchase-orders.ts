@@ -24,6 +24,7 @@ function serialize(po: any) {
     lineItems: po.lineItems ?? [],
     vendorName: po.vendor?.name,
     decidedAt: po.decidedAt ? po.decidedAt.toISOString() : null,
+    deliveryDate: po.deliveryDate ? po.deliveryDate.toISOString() : null,
     createdAt: po.createdAt.toISOString(),
     updatedAt: po.updatedAt.toISOString(),
     vendor: undefined,
@@ -42,6 +43,7 @@ function buildKeystonePoPdf(
     createdAt: Date;
     lineItems: unknown;
     status?: string;
+    deliveryDate?: Date | null;
   },
   overrides?: { poNumber?: string | null; status?: PoPdfStatus },
 ): Promise<Buffer> {
@@ -54,6 +56,7 @@ function buildKeystonePoPdf(
     createdAt: po.createdAt,
     vendorCode: po.vendor.zohoVendorId || po.vendor.id,
     status,
+    deliveryDate: po.deliveryDate ?? null,
     lineItems: (po.lineItems as any[]) ?? [],
     supplier: {
       address: po.vendor.gstAddress,
@@ -123,6 +126,35 @@ function assertValidHsn(lineItems: PoLine[]) {
       throw new HttpError(400, `HSN must be 4–8 digits (got "${hsn}" on "${li.name}").`);
     }
   }
+}
+
+/**
+ * Delivery date from the form, as `yyyy-mm-dd`. Optional — a PO can be raised before a
+ * date is agreed — but a value that isn't a real date is rejected rather than stored as
+ * `Invalid Date`, which would print as "Invalid Date" on the PO sent to the vendor.
+ */
+function parseDeliveryDate(value: string | null | undefined): Date | null {
+  const raw = (value ?? "").trim();
+  if (!raw) return null;
+
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(raw);
+  if (!m) {
+    throw new HttpError(400, `Delivery date must be in yyyy-mm-dd format (got "${raw}").`);
+  }
+  const [y, mo, d] = [Number(m[1]), Number(m[2]), Number(m[3])];
+  // Parsed as UTC midnight so the stored instant matches the date the user picked
+  // regardless of server time zone — and read back the same way when it's printed.
+  const date = new Date(Date.UTC(y, mo - 1, d));
+  // `new Date` silently rolls impossible dates over: "2026-02-30" becomes 2 March. Only
+  // a value that round-trips is the date the user actually chose.
+  if (
+    date.getUTCFullYear() !== y ||
+    date.getUTCMonth() !== mo - 1 ||
+    date.getUTCDate() !== d
+  ) {
+    throw new HttpError(400, `Delivery date "${raw}" isn't a real date.`);
+  }
+  return date;
 }
 
 /**
@@ -226,7 +258,7 @@ async function notifyApprovers(
 }
 
 export async function createPurchaseOrder(
-  dto: { vendorId: string; poNumber?: string; lineItems: PoLine[] },
+  dto: { vendorId: string; poNumber?: string; lineItems: PoLine[]; deliveryDate?: string | null },
   actorUserId: string | null,
 ) {
   const vendor = await prisma.vendor.findUnique({ where: { id: dto.vendorId } });
@@ -244,6 +276,7 @@ export async function createPurchaseOrder(
       lineItems: dto.lineItems as any,
       total,
       poNumber: dto.poNumber ?? null,
+      deliveryDate: parseDeliveryDate(dto.deliveryDate),
       createdById: actorUserId,
     },
     include: { vendor: { select: { name: true } } },
@@ -267,7 +300,7 @@ export async function createPurchaseOrder(
  */
 export async function updatePurchaseOrder(
   id: string,
-  dto: { poNumber?: string | null; lineItems?: PoLine[] },
+  dto: { poNumber?: string | null; lineItems?: PoLine[]; deliveryDate?: string | null },
   actor: { userId: string | null; role: string },
 ) {
   const po = await prisma.purchaseOrder.findUnique({ where: { id }, include: { vendor: true } });
@@ -307,6 +340,11 @@ export async function updatePurchaseOrder(
       lineItems: lineItems as any,
       total,
       ...(dto.poNumber !== undefined ? { poNumber: dto.poNumber || null } : {}),
+      // Only touched when the key is present, so a PATCH that omits it keeps the
+      // existing date rather than silently clearing it.
+      ...(dto.deliveryDate !== undefined
+        ? { deliveryDate: parseDeliveryDate(dto.deliveryDate) }
+        : {}),
       // Editing a rejected PO puts it back in the queue and clears the old reason.
       ...(wasRejected ? { status: "PENDING", decisionReason: null, decidedAt: null, decidedById: null } : {}),
     },

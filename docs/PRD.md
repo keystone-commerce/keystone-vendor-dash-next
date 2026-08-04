@@ -76,7 +76,7 @@ permissions, so a member cannot self-approve spend.
 | Forms | **react-hook-form** + `@hookform/resolvers` | 7.x | — |
 | Validation | **Zod** | 3.x | Shared client/server schemas |
 | ORM | **Prisma** | 6.x | Type-safe DB access + migrations |
-| Database | **PostgreSQL** (Supabase) | 15 | Managed, pooled |
+| Database | **PostgreSQL** (AWS RDS) | 15 | Managed; no built-in pooler |
 | Auth | **jsonwebtoken** + **bcryptjs** | — | JWT access/refresh; hashed OTP codes |
 | PDF | **pdf-lib** | 1.17 | PO generation, no native deps (serverless-safe) |
 | Email | **Gmail API** (googleapis) + nodemailer fallback | 144.x / 6.x | Transactional mail |
@@ -106,7 +106,7 @@ flowchart TD
         B["app/api/v1/**/route.ts<br/>41 route handlers"]
         C["lib/server/**<br/>business logic"]
     end
-    D[("Supabase Postgres<br/>via Prisma")]
+    D[("AWS RDS Postgres<br/>via Prisma")]
     E["Zoho Books API"]
     F["Google Drive API"]
     G["Gmail API"]
@@ -237,7 +237,7 @@ Three paths keep invoices current:
 | Trigger | Mechanism | Latency |
 |---|---|---|
 | **Webhook** | Zoho workflow rule → `/api/v1/zoho/webhook` | ~1–2 s |
-| **Daily cron** | Vercel Cron → `/api/v1/cron/sync` at 02:00 | safety net |
+| **Cron** | Vercel Cron → `/api/v1/cron/sync` every 15 min | safety net |
 | **Manual** | "Sync now" button | on demand |
 
 Vendor matching order: Zoho link → exact name → partial name. No match → the
@@ -364,9 +364,9 @@ so PDFs can be attached. Falls back to SMTP, then to console logging in developm
 ## 9. Environment Configuration
 
 ```bash
-# Database (Supabase)
-DATABASE_URL=            # transaction pooler :6543, connection_limit=1 in production
-DIRECT_URL=              # session pooler :5432, for migrations
+# Database (AWS RDS Postgres)
+DATABASE_URL=            # instance endpoint :5432, ?sslmode=require&connection_limit=5
+DIRECT_URL=              # same URL without connection_limit; migrations only
 
 # Auth
 JWT_ACCESS_SECRET= / JWT_ACCESS_TTL=15m
@@ -391,9 +391,11 @@ GMAIL_SENDER_EMAIL= / GMAIL_SENDER_NAME=
 # (approvers are the ADMIN users in the database — no env var)
 ```
 
-> **`connection_limit=1` in production is deliberate** — each serverless instance
-> gets one pooled connection. Locally a higher value is needed, since one long-lived
-> dev server issues many concurrent queries and would otherwise exhaust the pool.
+> **`connection_limit=5` on AWS RDS** — RDS has no built-in connection pooler, so each
+> warm serverless instance opens and holds its own pool. The instance allows 79
+> connections, roughly 8 of which AWS keeps for itself, so a bounded pool is what stops a
+> traffic spike exhausting `max_connections` and failing every query at once. Use **RDS
+> Proxy** if you outgrow it.
 
 ---
 
@@ -404,8 +406,8 @@ GMAIL_SENDER_EMAIL= / GMAIL_SENDER_NAME=
 | Host | Vercel — auto-deploy on merge to `main`, preview deploy per PR |
 | Build | `prisma generate && next build` |
 | Migrations | `prisma migrate deploy` |
-| Cron | `vercel.json` → `/api/v1/cron/sync` daily at 02:00 |
-| Database | Supabase Postgres (shared by preview and production) |
+| Cron | `vercel.json` → `/api/v1/cron/sync` every 15 min (`*/15 * * * *`) |
+| Database | AWS RDS Postgres (shared by preview and production) |
 
 > ⚠️ Preview deployments share the **production database**. Data created in a preview
 > is real.

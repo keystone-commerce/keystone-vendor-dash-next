@@ -47,6 +47,8 @@ export interface PoPdfInput {
   /** Drives the status line. Defaults to PENDING (pre-approval document). */
   status?: PoPdfStatus;
   lineItems: PoPdfLine[];
+  /** Agreed delivery date, filled by procurement. Blank until one is set. */
+  deliveryDate?: Date | null;
   /** Supplier details for the "Supplier Details" block (all optional). */
   supplier?: {
     address?: string | null;
@@ -300,9 +302,28 @@ export async function buildPoPdf(input: PoPdfInput): Promise<Buffer> {
     try {
       const img =
         liwip.kind === "png" ? await doc.embedPng(liwip.bytes) : await doc.embedJpg(liwip.bytes);
-      const lh = 58;
+      // Tune this to resize the mark; the width follows from the artwork's aspect ratio.
+      const lh = 46;
       const lw = (img.width / img.height) * lh;
-      page.drawImage(img, { x: RIGHT - lw, y: baseline, width: lw, height: lh });
+
+      // Vertical alignment is on the compass star, not the image box. The artwork has
+      // the star on the left and the "Liwip" wordmark on the right, and the star's centre
+      // measures at ~49.6% of the image height — so its centre is effectively lh/2 up
+      // from the image's bottom edge.
+      //
+      // That centre is lined up with the middle of the KEYSTONE capitals, so the two
+      // marks read as sitting on the same line. Bottom-aligning the image instead (the
+      // obvious approach) leaves the star noticeably low, because the artwork's own
+      // padding differs from the wordmark's descender space.
+      const STAR_CENTRE_FRACTION = 0.496;
+      const CAP_HEIGHT_RATIO = 0.662; // Times-Roman cap height, as a fraction of size
+      // Sits a touch above the exact optical centre — dead-centre reads slightly low
+      // next to the taller wordmark. Raise or lower this to nudge the mark.
+      const STAR_NUDGE_UP = 2;
+      const keystoneMidY = baseline + 12 + wordmarkLift + (24 * CAP_HEIGHT_RATIO) / 2;
+      const logoY = keystoneMidY - lh * (1 - STAR_CENTRE_FRACTION) + STAR_NUDGE_UP;
+
+      page.drawImage(img, { x: RIGHT - lw, y: logoY, width: lw, height: lh });
     } catch {
       drawLiwipPlaceholder();
     }
@@ -326,7 +347,16 @@ export async function buildPoPdf(input: PoPdfInput): Promise<Buffer> {
   const created = input.createdAt ?? new Date();
   const headerRows: [string, string, string, string][] = [
     ["PO No.", input.poNumber || "(assigned on approval)", "PO Date", created.toLocaleDateString("en-IN")],
-    ["Revision No.", "", "Delivery Date", ""],
+    [
+      "Revision No.",
+      "",
+      "Delivery Date",
+      // Formatted in UTC to match how it's stored (UTC midnight for a date-only value).
+      // Using the server's zone would print the previous day anywhere west of UTC.
+      input.deliveryDate
+        ? new Date(input.deliveryDate).toLocaleDateString("en-IN", { timeZone: "UTC" })
+        : "",
+    ],
     ["Buyer", "Keystone Commerce Private Limited", "Payment Terms", "30 Days"],
     ["Currency", "INR", "Transport", ""],
     ["Incoterms", "-NA-", "Place of Supply", "Karnataka"],

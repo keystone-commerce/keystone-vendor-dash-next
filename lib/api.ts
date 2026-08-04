@@ -88,7 +88,24 @@ export const vendorsApi = {
   setZohoLink: (id: string, zohoVendorId: string | null) =>
     api.patch<VendorDto>(`/vendors/${id}/zoho-link`, { zohoVendorId }).then((r) => r.data),
   exportCsv: () => api.get<string>("/vendors/export.csv", { responseType: "text" }).then((r) => r.data),
+  /** Bulk create from CSV. Admin only — the server returns 403 otherwise. */
+  importCsv: (file: File) => {
+    const form = new FormData();
+    form.append("file", file);
+    return api
+      .post<VendorImportResult>("/vendors/import.csv", form)
+      .then((r) => r.data);
+  },
+  importTemplateCsv: () =>
+    api.get<string>("/vendors/import-template.csv", { responseType: "text" }).then((r) => r.data),
 };
+
+export interface VendorImportResult {
+  imported: number;
+  skippedExisting: number;
+  totalRows: number;
+  errors: { row: number; message: string }[];
+}
 
 // ── catalogues ────────────────────────────────────────────────────────────────
 export interface CatalogueItemInput {
@@ -248,7 +265,9 @@ export interface CreatePurchaseOrderResult {
 export interface CreatePoInput {
   vendorId: string; // dashboard vendor id
   poNumber?: string;
-  lineItems: { name: string; quantity: number; rate: number; hsn?: string }[];
+  /** Agreed delivery date as yyyy-mm-dd. Printed on the PO. */
+  deliveryDate?: string | null;
+  lineItems: PoLineItemInput[];
 }
 export const purchaseOrdersApi = {
   list: (status?: PurchaseOrderStatus) =>
@@ -258,7 +277,14 @@ export const purchaseOrdersApi = {
   create: (input: CreatePoInput) =>
     api.post<PurchaseOrderDto>("/purchase-orders", input).then((r) => r.data),
   /** Edit a PENDING/REJECTED PO. Approved ones are refused server-side (409). */
-  update: (id: string, input: { poNumber?: string | null; lineItems?: PoLineItemInput[] }) =>
+  update: (
+    id: string,
+    input: {
+      poNumber?: string | null;
+      deliveryDate?: string | null;
+      lineItems?: PoLineItemInput[];
+    },
+  ) =>
     api.patch<PurchaseOrderDto>(`/purchase-orders/${id}`, input).then((r) => r.data),
   approve: (id: string) =>
     api.post<PurchaseOrderDto>(`/purchase-orders/${id}/approve`).then((r) => r.data),

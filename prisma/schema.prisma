@@ -3,10 +3,20 @@ generator client {
 }
 
 datasource db {
-  provider  = "postgresql"
-  // Runtime (serverless): Supabase transaction pooler on :6543 (pgbouncer).
-  url       = env("DATABASE_URL")
-  // Migrations & introspection need a direct connection: Supabase session pooler on :5432.
+  provider = "postgresql"
+
+  // Runtime connection. On AWS RDS this is the instance endpoint on :5432 with
+  // ?sslmode=require — RDS has no built-in pooler, so add &connection_limit=N to stop
+  // serverless instances exhausting max_connections (or put RDS Proxy in front).
+  url = env("DATABASE_URL")
+
+  // Migrations and introspection. Identical to DATABASE_URL on RDS; it exists as a
+  // separate variable for providers that front the database with a transaction pooler
+  // (pgbouncer and similar), which can't run DDL.
+  //
+  // Needed by `prisma migrate` and `prisma validate`, which fail with P1012 without it.
+  // NOT needed to serve traffic: Prisma Client and `prisma generate` both work fine when
+  // it's unset, so a Vercel deployment doesn't require it.
   directUrl = env("DIRECT_URL")
 }
 
@@ -83,6 +93,12 @@ model Vendor {
   tradeName    String?
   gstAddress   String?
   gstStateCode String?
+
+  // Billing = where the vendor invoices from; shipping = where goods dispatch from.
+  // Pushed to Zoho as the contact's billing_address / shipping_address, and printed in
+  // the Supplier Details block of the PO.
+  billingAddress  String?
+  shippingAddress String?
   gstStatus    String? // ACT | CNL | INA | PRO
   gstFetchedAt DateTime?
   createdAt    DateTime  @default(now())
@@ -169,6 +185,8 @@ model PurchaseOrder {
   total          Float               @default(0)
   poNumber       String?
   zohoId         String?
+  /** When the vendor is required to deliver. Filled by procurement, printed on the PO. */
+  deliveryDate   DateTime?
   createdById    String?
   decidedById    String?
   decisionReason String?

@@ -24,13 +24,19 @@ export function Header() {
   return (
     <header className="bg-card border-b border-border">
       <div className="max-w-[1400px] mx-auto px-6 py-4 flex items-center gap-4">
-        {/* Angled orange corner motif */}
-        <div className="relative w-14 h-14 rounded-keystone bg-orange overflow-hidden shrink-0">
-          <div className="absolute inset-0 grid place-items-center text-white font-bold text-xl">
-            K
-          </div>
-          <div className="absolute -bottom-3 -right-3 w-8 h-8 rotate-45 bg-orange-deep" />
-        </div>
+        {/* Liwip mark. The SVG is orange/rust on transparent, so it reads on both the
+            light and dark themes without needing a filter. */}
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        {/* alt="" on purpose: the LIWIP wordmark is rendered as text just below, so a
+            described image would have a screen reader announce the brand twice. */}
+        <img
+          src="/liwip-logo.svg"
+          alt=""
+          aria-hidden="true"
+          width={56}
+          height={56}
+          className="w-14 h-14 shrink-0"
+        />
 
         <div className="flex-1 min-w-0">
           <div className="flex items-baseline gap-3">

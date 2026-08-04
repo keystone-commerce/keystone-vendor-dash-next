@@ -14,6 +14,14 @@ api.interceptors.request.use((config: InternalAxiosRequestConfig) => {
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
   }
+  // File uploads must not inherit the instance-wide application/json above. A multipart
+  // body needs `multipart/form-data; boundary=…`, and only the browser knows the
+  // boundary — so the header has to be deleted, not replaced. Leaving it as JSON makes
+  // the server's req.formData() fail with "Content-Type was not one of
+  // multipart/form-data...". Handled here so every upload gets it right by default.
+  if (typeof FormData !== "undefined" && config.data instanceof FormData) {
+    delete config.headers["Content-Type"];
+  }
   return config;
 });
 

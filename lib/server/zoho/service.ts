@@ -1,4 +1,4 @@
-import { BillStatus, rupeesToPaise } from "@shared";
+import { BillStatus, GST_STATE_CODES, rupeesToPaise } from "@shared";
 import { prisma } from "@/lib/prisma";
 import { HttpError } from "../auth";
 import { audit } from "../audit";
@@ -242,7 +242,18 @@ export async function createAndLinkVendor(vendorId: string, actorUserId: string 
 
   let created;
   try {
-    created = await client.createVendor({ name: vendor.name, email: vendor.email ?? undefined, phone: vendor.phone ?? undefined });
+    created = await client.createVendor({
+      name: vendor.name,
+      email: vendor.email ?? undefined,
+      phone: vendor.phone ?? undefined,
+      // Sending the GSTIN is what makes Zoho mark the vendor GST-registered.
+      gstin: vendor.gstin ?? undefined,
+      gstStateName: vendor.gstin ? GST_STATE_CODES[vendor.gstin.slice(0, 2)] : undefined,
+      // Fall back to the GST address when no billing address was captured — it's the
+      // registered address, so it's the right default for the Zoho contact.
+      billingAddress: vendor.billingAddress ?? vendor.gstAddress ?? undefined,
+      shippingAddress: vendor.shippingAddress ?? undefined,
+    });
   } catch (err) {
     throw new HttpError(502, `Zoho vendor create failed: ${(err as Error).message}`);
   }
