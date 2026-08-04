@@ -47,9 +47,11 @@ export function LoginPage() {
     <div className="min-h-screen w-full flex items-center justify-center p-4">
       <div className="card w-full max-w-sm p-8 shadow-xl border border-border">
         <div className="flex flex-col items-center text-center mb-7">
-          <div className="w-14 h-14 rounded-keystone bg-orange text-white grid place-items-center font-bold text-2xl shadow-sm">
-            K
-          </div>
+          {/* Height-constrained with auto width — the mark is ~2.6:1, so a square box
+              would squash it. Unlike the header, this is the only branding on the page,
+              so it carries a real alt rather than being decorative. */}
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/liwip-logo.svg" alt="Liwip" className="h-12 w-auto" />
           <div className="text-[11px] tracking-[0.22em] text-muted mt-3">KEYSTONE COMMERCE</div>
           <div className="text-lg font-bold leading-tight">Vendor Dashboard</div>
           <p className="text-xs text-muted mt-1">

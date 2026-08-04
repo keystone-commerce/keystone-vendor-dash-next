@@ -88,7 +88,24 @@ export const vendorsApi = {
   setZohoLink: (id: string, zohoVendorId: string | null) =>
     api.patch<VendorDto>(`/vendors/${id}/zoho-link`, { zohoVendorId }).then((r) => r.data),
   exportCsv: () => api.get<string>("/vendors/export.csv", { responseType: "text" }).then((r) => r.data),
+  /** Bulk create from CSV. Admin only — the server returns 403 otherwise. */
+  importCsv: (file: File) => {
+    const form = new FormData();
+    form.append("file", file);
+    return api
+      .post<VendorImportResult>("/vendors/import.csv", form)
+      .then((r) => r.data);
+  },
+  importTemplateCsv: () =>
+    api.get<string>("/vendors/import-template.csv", { responseType: "text" }).then((r) => r.data),
 };
+
+export interface VendorImportResult {
+  imported: number;
+  skippedExisting: number;
+  totalRows: number;
+  errors: { row: number; message: string }[];
+}
 
 // ── catalogues ────────────────────────────────────────────────────────────────
 export interface CatalogueItemInput {
