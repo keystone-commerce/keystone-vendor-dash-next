@@ -12,7 +12,7 @@ datasource db {
 
   // Migrations and introspection. Identical to DATABASE_URL on RDS; it exists as a
   // separate variable for providers that front the database with a transaction pooler
-  // (Supabase, pgbouncer), which can't run DDL.
+  // (pgbouncer and similar), which can't run DDL.
   //
   // Needed by `prisma migrate` and `prisma validate`, which fail with P1012 without it.
   // NOT needed to serve traffic: Prisma Client and `prisma generate` both work fine when

@@ -351,7 +351,11 @@ export async function buildPoPdf(input: PoPdfInput): Promise<Buffer> {
       "Revision No.",
       "",
       "Delivery Date",
-      input.deliveryDate ? new Date(input.deliveryDate).toLocaleDateString("en-IN") : "",
+      // Formatted in UTC to match how it's stored (UTC midnight for a date-only value).
+      // Using the server's zone would print the previous day anywhere west of UTC.
+      input.deliveryDate
+        ? new Date(input.deliveryDate).toLocaleDateString("en-IN", { timeZone: "UTC" })
+        : "",
     ],
     ["Buyer", "Keystone Commerce Private Limited", "Payment Terms", "30 Days"],
     ["Currency", "INR", "Transport", ""],

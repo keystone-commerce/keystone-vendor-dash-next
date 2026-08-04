@@ -224,9 +224,14 @@ export function VendorForm({ vendor, onClose }: Props) {
           onChange={(e) => setBillingAddress(e.target.value)}
         />
       </label>
-      <label className="block">
+      {/* The label is explicit (htmlFor/id) rather than wrapping the input: an implicit
+          label containing both a button and an input can bind to the button, leaving the
+          input with no accessible name. */}
+      <div className="block">
         <div className="flex items-center justify-between">
-          <span className="label">Shipping address</span>
+          <label className="label" htmlFor="vendor-shipping-address">
+            Shipping address
+          </label>
           <button
             type="button"
             className="text-xs text-orange-deep hover:underline disabled:opacity-40 disabled:no-underline"
@@ -237,12 +242,13 @@ export function VendorForm({ vendor, onClose }: Props) {
           </button>
         </div>
         <input
+          id="vendor-shipping-address"
           className="input mt-1"
           placeholder="Where goods dispatch from"
           value={shippingAddress}
           onChange={(e) => setShippingAddress(e.target.value)}
         />
-      </label>
+      </div>
       <label className="block">
         <span className="label">Contract value (₹)</span>
         <input

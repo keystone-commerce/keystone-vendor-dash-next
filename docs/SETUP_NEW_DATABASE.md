@@ -24,7 +24,7 @@ cp .env.example .env
 ```
 
 The **database** section is what matters for setup. On RDS both URLs are the same
-(RDS has no separate connection pooler, unlike Supabase):
+(RDS has no separate connection pooler, so there's no second endpoint to point at):
 
 ```bash
 DATABASE_URL="postgresql://dbadmin:REAL_PASSWORD@<your-db>.<id>.<region>.rds.amazonaws.com:5432/vendor_dashboard?sslmode=require&connection_limit=5"
@@ -123,7 +123,7 @@ than failing. That also makes it the tool for granting admin later.
 An explicit `DATABASE_URL` overrides `.env`:
 
 ```bash
-DATABASE_URL="postgresql://dbadmin:PASSWORD@host:5432/vendor_dashboard?sslmode=require" \
+DATABASE_URL="postgresql://dbadmin:ENCODED_PASSWORD@host:5432/vendor_dashboard?sslmode=require" \
   npx ts-node prisma/create-admin.ts admin@keystonecommerce.in "Admin"
 ```
 
@@ -179,8 +179,11 @@ No passwords to distribute — each person signs in with a code emailed to them.
 
 - Set the same variables in the host's environment settings, then **redeploy** — env
   changes do not reach an existing deployment.
-- `ZOHO_WEBHOOK_SECRET` and `CRON_SECRET` **fail silently** if missing: bill sync
-  simply stops with no error anywhere in the UI.
+- `ZOHO_WEBHOOK_SECRET` and `CRON_SECRET` are both **required for bill sync**. Without
+  the webhook secret Zoho's calls are rejected and real-time sync stops with nothing shown
+  in the UI. Without `CRON_SECRET` the scheduled sync returns **503** and refuses to run —
+  deliberately failing closed, since the endpoint otherwise can't distinguish Vercel's
+  cron from anyone on the internet.
 - Keep `ZOHO_ENABLED="true"`, or the app runs in demo mode and purchase orders never
   reach Zoho Books (they get fake `PO-MOCK-…` numbers).
 - After switching to a different Zoho organisation, every vendor must be re-linked

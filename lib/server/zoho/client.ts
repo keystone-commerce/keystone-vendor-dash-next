@@ -283,13 +283,19 @@ async function orgSupportsGst(): Promise<boolean> {
   try {
     const json = await api("GET", `/organizations/${organizationId()}`);
     const org = json?.organization ?? {};
+    // Only a successful answer is cached. Caching a failure would mean one transient
+    // Zoho error permanently strips GST off every vendor created by this instance,
+    // long after Zoho recovered — and nothing would report it.
     cachedOrgGstEnabled = Boolean(
       org.is_registered_for_gst ?? org.tax_settings?.is_tax_registered ?? false,
     );
-  } catch {
-    cachedOrgGstEnabled = false;
+    return cachedOrgGstEnabled;
+  } catch (err) {
+    console.warn(
+      `[zoho] couldn't read the organisation's GST setting, omitting GST fields for this request: ${(err as Error).message}`,
+    );
+    return false; // this request only — left uncached so the next one retries
   }
-  return cachedOrgGstEnabled;
 }
 
 /**

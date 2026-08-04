@@ -136,11 +136,25 @@ function assertValidHsn(lineItems: PoLine[]) {
 function parseDeliveryDate(value: string | null | undefined): Date | null {
   const raw = (value ?? "").trim();
   if (!raw) return null;
-  const d = new Date(raw);
-  if (Number.isNaN(d.getTime())) {
-    throw new HttpError(400, `Delivery date "${raw}" isn't a valid date.`);
+
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(raw);
+  if (!m) {
+    throw new HttpError(400, `Delivery date must be in yyyy-mm-dd format (got "${raw}").`);
   }
-  return d;
+  const [y, mo, d] = [Number(m[1]), Number(m[2]), Number(m[3])];
+  // Parsed as UTC midnight so the stored instant matches the date the user picked
+  // regardless of server time zone — and read back the same way when it's printed.
+  const date = new Date(Date.UTC(y, mo - 1, d));
+  // `new Date` silently rolls impossible dates over: "2026-02-30" becomes 2 March. Only
+  // a value that round-trips is the date the user actually chose.
+  if (
+    date.getUTCFullYear() !== y ||
+    date.getUTCMonth() !== mo - 1 ||
+    date.getUTCDate() !== d
+  ) {
+    throw new HttpError(400, `Delivery date "${raw}" isn't a real date.`);
+  }
+  return date;
 }
 
 /**

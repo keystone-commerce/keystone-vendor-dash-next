@@ -237,7 +237,7 @@ Three paths keep invoices current:
 | Trigger | Mechanism | Latency |
 |---|---|---|
 | **Webhook** | Zoho workflow rule → `/api/v1/zoho/webhook` | ~1–2 s |
-| **Daily cron** | Vercel Cron → `/api/v1/cron/sync` at 02:00 | safety net |
+| **Cron** | Vercel Cron → `/api/v1/cron/sync` every 15 min | safety net |
 | **Manual** | "Sync now" button | on demand |
 
 Vendor matching order: Zoho link → exact name → partial name. No match → the
@@ -391,9 +391,11 @@ GMAIL_SENDER_EMAIL= / GMAIL_SENDER_NAME=
 # (approvers are the ADMIN users in the database — no env var)
 ```
 
-> **`connection_limit=1` in production is deliberate** — each serverless instance
-> gets one pooled connection. Locally a higher value is needed, since one long-lived
-> dev server issues many concurrent queries and would otherwise exhaust the pool.
+> **`connection_limit=5` on AWS RDS** — RDS has no built-in connection pooler, so each
+> warm serverless instance opens and holds its own pool. The instance allows 79
+> connections, roughly 8 of which AWS keeps for itself, so a bounded pool is what stops a
+> traffic spike exhausting `max_connections` and failing every query at once. Use **RDS
+> Proxy** if you outgrow it.
 
 ---
 
@@ -404,7 +406,7 @@ GMAIL_SENDER_EMAIL= / GMAIL_SENDER_NAME=
 | Host | Vercel — auto-deploy on merge to `main`, preview deploy per PR |
 | Build | `prisma generate && next build` |
 | Migrations | `prisma migrate deploy` |
-| Cron | `vercel.json` → `/api/v1/cron/sync` daily at 02:00 |
+| Cron | `vercel.json` → `/api/v1/cron/sync` every 15 min (`*/15 * * * *`) |
 | Database | AWS RDS Postgres (shared by preview and production) |
 
 > ⚠️ Preview deployments share the **production database**. Data created in a preview

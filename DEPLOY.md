@@ -37,7 +37,7 @@ Four things go wrong here more often than anything else in this document:
 | **Paste only the value into Vercel** | No `DATABASE_URL=`, no quotes. Those belong in a `.env` file. A leading `"` or space gives `the URL must start with the protocol postgresql://` — the variable is read, but rejected before any connection is attempted |
 | **`?sslmode=require` is mandatory** | RDS refuses plaintext connections |
 | **Percent-encode the password** | `\| ) [ * ] ? @ # /` etc. must be escaped in a URL (`%7C`, `%29`, …). Prisma decodes it automatically. Tools that take a plain password — pgAdmin, `PGPASSWORD` — need the **decoded** form instead |
-| **`connection_limit` on `DATABASE_URL` only** | RDS has **no built-in pooler**, unlike Supabase. Each warm serverless instance opens its own pool, so an unbounded pool exhausts `max_connections` and everything starts failing at once. Use **RDS Proxy** if you outgrow it |
+| **`connection_limit=5` on `DATABASE_URL` only** | RDS has **no built-in connection pooler**, so each warm serverless instance opens and holds its own pool. An unbounded pool exhausts `max_connections` and every query starts failing at once. Use **RDS Proxy** if you outgrow it |
 
 > `DIRECT_URL` is **not** needed to serve traffic — `prisma generate` and Prisma Client both
 > work without it. It's required by `prisma migrate` / `prisma validate`, which fail with
@@ -97,9 +97,14 @@ passwordless.
 | Key | What |
 |---|---|
 | `ZOHO_WEBHOOK_SECRET` | Random string; goes in the Zoho workflow webhook URL as `?token=…` |
-| `CRON_SECRET` | Random string; Vercel sends it on the scheduled sync (`vercel.json`, every 15 min) |
+| `CRON_SECRET` | Random string; Vercel sends it as `Authorization: Bearer …` on cron requests (`vercel.json`, every 15 min) |
 
-Both **fail silently** if unset — bill sync simply stops, with no error surfaced in the UI.
+Both are **required for sync to work**, and they fail differently when missing:
+
+| Missing | Behaviour |
+|---|---|
+| `ZOHO_WEBHOOK_SECRET` | Zoho's calls are rejected, so real-time sync stops. Nothing surfaces in the UI — the dashboard just goes quiet |
+| `CRON_SECRET` | `/api/v1/cron/sync` returns **503** and refuses to run. It fails **closed** on purpose: without the secret the endpoint has no way to tell Vercel's cron from anyone on the internet, and a full Zoho sync is expensive to have triggered at will. The refusal is logged |
 
 ```bash
 node -e "console.log('whk_'+require('crypto').randomBytes(24).toString('hex'))"

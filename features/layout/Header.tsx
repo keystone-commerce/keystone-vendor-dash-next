@@ -27,9 +27,12 @@ export function Header() {
         {/* Liwip mark. The SVG is orange/rust on transparent, so it reads on both the
             light and dark themes without needing a filter. */}
         {/* eslint-disable-next-line @next/next/no-img-element */}
+        {/* alt="" on purpose: the LIWIP wordmark is rendered as text just below, so a
+            described image would have a screen reader announce the brand twice. */}
         <img
           src="/liwip-logo.svg"
-          alt="Liwip"
+          alt=""
+          aria-hidden="true"
           width={56}
           height={56}
           className="w-14 h-14 shrink-0"
