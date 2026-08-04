@@ -23,7 +23,18 @@ export interface CreatePoInput {
 }
 
 let cachedPurchaseAccountId: string | null = null;
-let cachedTaxes: { id: string; name: string; percent: number }[] | null = null;
+
+type OrgTax = { id: string; name: string; percent: number };
+let cachedTaxes: { at: number; taxes: OrgTax[] } | null = null;
+
+/**
+ * How long a tax list is trusted. Short on purpose: when a rate is missing the error
+ * tells the admin to add it in Zoho, and they'll retry within a minute or two. An
+ * indefinite cache would keep rejecting the PO with a list that's no longer true, and
+ * an org that switches GST on after an empty response was cached would keep having its
+ * tax_id omitted — both only resolving on a process restart.
+ */
+const TAX_CACHE_TTL_MS = 60_000;
 
 /**
  * The organisation's configured taxes, by percentage.
@@ -31,22 +42,22 @@ let cachedTaxes: { id: string; name: string; percent: number }[] | null = null;
  * A GST-registered Zoho org refuses a purchase order whose lines don't declare a tax:
  * `{"code":110802,"message":"Specify either a Tax or Tax Exemption or Reverse Charge."}`.
  * So each line needs a `tax_id`, and the id is org-specific — it has to be looked up
- * rather than hardcoded. Read once and cached, like the purchase account.
+ * rather than hardcoded.
  *
- * Only a successful response is cached, so a transient failure doesn't permanently
- * convince this instance that the org has no taxes.
+ * Only a successful response is cached, so a transient failure doesn't convince this
+ * instance that the org has no taxes.
  */
-async function orgTaxes(): Promise<{ id: string; name: string; percent: number }[]> {
-  if (cachedTaxes) return cachedTaxes;
+async function orgTaxes(): Promise<OrgTax[]> {
+  if (cachedTaxes && Date.now() - cachedTaxes.at < TAX_CACHE_TTL_MS) return cachedTaxes.taxes;
   const json = await api("GET", "/settings/taxes");
-  const taxes = (json?.taxes ?? [])
+  const taxes: OrgTax[] = (json?.taxes ?? [])
     .map((t: any) => ({
       id: String(t.tax_id ?? ""),
       name: String(t.tax_name ?? ""),
       percent: Number(t.tax_percentage ?? 0),
     }))
-    .filter((t: any) => t.id);
-  cachedTaxes = taxes;
+    .filter((t: OrgTax) => t.id);
+  cachedTaxes = { at: Date.now(), taxes };
   return taxes;
 }
 
@@ -282,8 +293,18 @@ export async function createPurchaseOrder(
   input: CreatePoInput,
 ): Promise<{ zohoId: string; poNumber: string; total: number; status: string }> {
   const purchaseAccountId = await getPurchaseAccountId();
+
+  // Resolve every line's tax BEFORE touching items. resolvePurchasableItemId() can POST
+  // /items, which creates a product in the customer's Zoho — an irreversible write. If a
+  // later line then failed tax resolution, the purchase order would be rejected while the
+  // items it had already created stayed behind, and each retry would add more. Taxes are
+  // read-only and cheap to check, so they're validated up front: either the whole order
+  // can be built or nothing is created.
+  const taxIds: (string | null)[] = [];
+  for (const li of input.lineItems) taxIds.push(await resolveTaxId(li.gstPercent));
+
   const lineItems = [];
-  for (const li of input.lineItems) {
+  for (const [i, li] of input.lineItems.entries()) {
     const itemId = await resolvePurchasableItemId(li.name, li.rate, li.hsn, purchaseAccountId);
     // NOTE: Zoho stores HSN on the item master (set during item creation above), not
     // on the purchase-order line. Sending hsn_or_sac here returns 400 "Invalid Element
@@ -291,7 +312,7 @@ export async function createPurchaseOrder(
     // tax_id is sent only when the org actually has taxes configured: a GST-registered org
     // rejects untaxed lines with 110802, while an org with no taxes has no id to send. So
     // it follows the organisation rather than being assumed either way.
-    const taxId = await resolveTaxId(li.gstPercent);
+    const taxId = taxIds[i];
     lineItems.push({
       item_id: itemId,
       rate: li.rate,
