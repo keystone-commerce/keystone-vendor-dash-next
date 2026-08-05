@@ -23,6 +23,30 @@ interface SyncResult {
 let lastSyncAt: string | null = null;
 let lastResult: SyncResult | null = null;
 
+function normalizeVendorName(value: string | null | undefined) {
+  return (value ?? "").trim().replace(/\s+/g, " ").toLowerCase();
+}
+
+function normalizeVendorGstin(value: string | null | undefined) {
+  return (value ?? "").replace(/\s+/g, "").trim().toUpperCase();
+}
+
+async function linkVendorToZoho(
+  vendorId: string,
+  zohoVendorId: string,
+  actorUserId: string | null,
+  source: "match" | "import",
+) {
+  await prisma.vendor.update({ where: { id: vendorId }, data: { zohoVendorId } });
+  await audit({
+    userId: actorUserId,
+    action: "VENDOR_ZOHO_LINK",
+    entityType: "Vendor",
+    entityId: vendorId,
+    metadata: { zohoVendorId, source },
+  });
+}
+
 function toUpsert(bill: client.ZohoBill, status: BillStatus) {
   return {
     zohoId: bill.zohoId,
@@ -134,8 +158,10 @@ export async function assignUnmatched(zohoId: string, vendorId: string, actorUse
 
 export interface ZohoVendorImportResult {
   imported: number;
-  /** Already in the dashboard — matched by Zoho id, name or GSTIN. */
+  /** Already present but not linked because the match was ambiguous or already linked elsewhere. */
   skippedExisting: number;
+  /** Existing dashboard vendors that were linked to their matching Zoho contact. */
+  linkedExisting: number;
   /** Imported, but missing contact person / mobile / email, so POs are blocked for them. */
   incomplete: string[];
   totalFromZoho: number;
@@ -169,39 +195,76 @@ export async function importVendorsFromZoho(
 
   const zohoVendors = await client.listVendors();
   if (!zohoVendors.length) {
-    return { imported: 0, skippedExisting: 0, incomplete: [], totalFromZoho: 0 };
+    return { imported: 0, skippedExisting: 0, linkedExisting: 0, incomplete: [], totalFromZoho: 0 };
   }
 
   // Read existing vendors once — same reason the bill sync does.
   const existing = await prisma.vendor.findMany({
-    select: { name: true, gstin: true, zohoVendorId: true },
+    select: { id: true, name: true, gstin: true, zohoVendorId: true },
   });
   const linkedIds = new Set(existing.map((v) => v.zohoVendorId).filter(Boolean) as string[]);
-  const names = new Set(existing.map((v) => v.name.trim().toLowerCase()));
-  const gstins = new Set(existing.map((v) => v.gstin).filter(Boolean) as string[]);
+  const gstins = new Set(
+    existing.map((v) => normalizeVendorGstin(v.gstin)).filter(Boolean),
+  );
 
   const rows: any[] = [];
   const incomplete: string[] = [];
   let skippedExisting = 0;
+  let linkedExisting = 0;
   const seenNames = new Set<string>();
+  const linkedDashboardIds = new Set<string>();
+  const linksToWrite: { vendorId: string; zohoVendorId: string }[] = [];
 
-  // Work out which vendors are actually new before spending a request on each.
+  // Work out which vendors are actually new before spending a request on each. A matching
+  // dashboard vendor is linked in place, rather than skipped, so it will use the durable
+  // Zoho ID for bills and future "Create in Zoho & link" actions.
   const candidates = zohoVendors.filter((v) => {
     const name = v.name.trim();
     if (!name) return false;
-    if (linkedIds.has(v.id) || names.has(name.toLowerCase()) || (v.gstin && gstins.has(v.gstin))) {
+    if (linkedIds.has(v.id)) {
       skippedExisting++;
       return false;
     }
-    if (seenNames.has(name.toLowerCase())) {
+
+    const gstin = normalizeVendorGstin(v.gstin);
+    const gstMatches = gstin
+      ? existing.filter((row) => normalizeVendorGstin(row.gstin) === gstin)
+      : [];
+    const nameMatches = existing.filter(
+      (row) => normalizeVendorName(row.name) === normalizeVendorName(name),
+    );
+    // GSTIN is the stronger identity signal. Only fall back to a name match when no
+    // dashboard GSTIN match exists.
+    const matches = gstMatches.length ? gstMatches : nameMatches;
+    if (matches.length) {
+      // Never guess when multiple records match, or when the matching dashboard vendor is
+      // already linked to a different Zoho contact.
+      if (matches.length === 1) {
+        const match = matches[0];
+        if (!match.zohoVendorId && !linkedDashboardIds.has(match.id)) {
+          linksToWrite.push({ vendorId: match.id, zohoVendorId: v.id });
+          linkedDashboardIds.add(match.id);
+          linkedExisting++;
+          return false;
+        }
+      }
+      skippedExisting++;
+      return false;
+    }
+
+    if (seenNames.has(normalizeVendorName(name))) {
       // Two Zoho contacts can share a name; keep the first rather than create confusing
       // near-duplicates in the dashboard.
       skippedExisting++;
       return false;
     }
-    seenNames.add(name.toLowerCase());
+    seenNames.add(normalizeVendorName(name));
     return true;
   });
+
+  for (const link of linksToWrite) {
+    await linkVendorToZoho(link.vendorId, link.zohoVendorId, actorUserId, "import");
+  }
 
   // The contacts list omits contact_persons, addresses and gst_no, so each new vendor
   // needs its own GET /contacts/{id}. Batched a few at a time: sequential would be slow
@@ -243,7 +306,9 @@ export async function importVendorsFromZoho(
     // vs IGST split on the PO, so a wrong one is worse than none. Also skipped if another
     // vendor already holds it, since the column is unique.
     const gstin =
-      v.gstin && !gstinError(v.gstin) && !gstins.has(v.gstin) ? v.gstin : null;
+      v.gstin && !gstinError(v.gstin) && !gstins.has(normalizeVendorGstin(v.gstin))
+        ? normalizeVendorGstin(v.gstin)
+        : null;
     if (gstin) gstins.add(gstin);
 
     if (!v.contactName || !v.phone || !v.email) incomplete.push(name);
@@ -278,7 +343,7 @@ export async function importVendorsFromZoho(
     });
   }
 
-  return { imported, skippedExisting, incomplete, totalFromZoho: zohoVendors.length };
+  return { imported, skippedExisting, linkedExisting, incomplete, totalFromZoho: zohoVendors.length };
 }
 
 export async function getStatus() {
@@ -389,6 +454,43 @@ export async function createAndLinkVendor(vendorId: string, actorUserId: string 
   if (!vendor) throw new HttpError(400, "Vendor not found.");
   if (vendor.zohoVendorId) return { vendorId, zohoVendorId: vendor.zohoVendorId, alreadyLinked: true };
 
+  // Check Zoho first. The dashboard only stores the Zoho ID after a link, so without this
+  // lookup an existing Zoho contact would be treated as new and a duplicate could be made.
+  let zohoVendors: client.ZohoVendorSummary[];
+  try {
+    zohoVendors = await client.listVendors();
+  } catch (err) {
+    throw new HttpError(502, `Could not check existing Zoho vendors: ${(err as Error).message}`);
+  }
+
+  const gstin = normalizeVendorGstin(vendor.gstin);
+  const gstMatches = gstin
+    ? zohoVendors.filter((candidate) => normalizeVendorGstin(candidate.gstin) === gstin)
+    : [];
+  const nameMatches = zohoVendors.filter(
+    (candidate) => normalizeVendorName(candidate.name) === normalizeVendorName(vendor.name),
+  );
+  const matches = gstMatches.length ? gstMatches : nameMatches;
+
+  if (matches.length > 1) {
+    throw new HttpError(
+      409,
+      gstMatches.length
+        ? `Multiple Zoho vendors have GSTIN ${gstin}. Choose the correct Zoho vendor ID and link it manually.`
+        : `Multiple Zoho vendors are named "${vendor.name}". Choose the correct Zoho vendor ID and link it manually.`,
+    );
+  }
+
+  if (matches.length === 1) {
+    await linkVendorToZoho(vendorId, matches[0].id, actorUserId, "match");
+    return {
+      vendorId,
+      zohoVendorId: matches[0].id,
+      alreadyLinked: false,
+      matchedExisting: true,
+    };
+  }
+
   let created;
   try {
     created = await client.createVendor({
@@ -408,7 +510,7 @@ export async function createAndLinkVendor(vendorId: string, actorUserId: string 
   }
   await prisma.vendor.update({ where: { id: vendorId }, data: { zohoVendorId: created.id } });
   await audit({ userId: actorUserId, action: "ZOHO_VENDOR_CREATE_LINK", entityType: "Vendor", entityId: vendorId, metadata: { zohoVendorId: created.id } });
-  return { vendorId, zohoVendorId: created.id, alreadyLinked: false };
+  return { vendorId, zohoVendorId: created.id, alreadyLinked: false, matchedExisting: false };
 }
 
 export async function listZohoVendors() {

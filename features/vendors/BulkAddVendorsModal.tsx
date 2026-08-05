@@ -112,7 +112,8 @@ export function BulkAddVendorsModal({ onClose }: { onClose: () => void }) {
           {zohoReport && (
             <div className="mt-3 text-sm">
               <div>
-                Imported <strong>{zohoReport.imported}</strong> · skipped{" "}
+                Imported <strong>{zohoReport.imported}</strong> · linked existing{" "}
+                <strong>{zohoReport.linkedExisting}</strong> · skipped{" "}
                 <strong>{zohoReport.skippedExisting}</strong> already present · Zoho has{" "}
                 {zohoReport.totalFromZoho} vendor(s).
               </div>

@@ -110,6 +110,7 @@ export interface VendorImportResult {
 export interface ZohoVendorImportResult {
   imported: number;
   skippedExisting: number;
+  linkedExisting: number;
   /** Names imported without contact person / mobile / email — POs are blocked for these. */
   incomplete: string[];
   totalFromZoho: number;
@@ -244,7 +245,12 @@ export const zohoApi = {
   /** Create a matching Zoho vendor for a dashboard vendor and save its id. */
   createAndLinkVendor: (vendorId: string) =>
     api
-      .post<{ vendorId: string; zohoVendorId: string; alreadyLinked: boolean }>(
+      .post<{
+        vendorId: string;
+        zohoVendorId: string;
+        alreadyLinked: boolean;
+        matchedExisting?: boolean;
+      }>(
         "/zoho/vendors/link",
         { vendorId },
       )
