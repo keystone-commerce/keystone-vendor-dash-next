@@ -111,6 +111,9 @@ export interface ZohoVendorImportResult {
   imported: number;
   skippedExisting: number;
   linkedExisting: number;
+  ambiguous: string[];
+  conflicts: string[];
+  duplicateZohoNames: string[];
   /** Names imported without contact person / mobile / email — POs are blocked for these. */
   incomplete: string[];
   totalFromZoho: number;

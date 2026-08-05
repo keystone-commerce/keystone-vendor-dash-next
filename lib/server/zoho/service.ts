@@ -36,8 +36,21 @@ async function linkVendorToZoho(
   zohoVendorId: string,
   actorUserId: string | null,
   source: "match" | "import",
-) {
-  await prisma.vendor.update({ where: { id: vendorId }, data: { zohoVendorId } });
+): Promise<boolean> {
+  // Check the current owner before writing, then still handle P2002 because another
+  // request can claim the same Zoho ID between this read and the update.
+  const owner = await prisma.vendor.findUnique({
+    where: { zohoVendorId },
+    select: { id: true },
+  });
+  if (owner && owner.id !== vendorId) return false;
+
+  try {
+    await prisma.vendor.update({ where: { id: vendorId }, data: { zohoVendorId } });
+  } catch (err) {
+    if ((err as { code?: string })?.code === "P2002") return false;
+    throw err;
+  }
   await audit({
     userId: actorUserId,
     action: "VENDOR_ZOHO_LINK",
@@ -45,6 +58,7 @@ async function linkVendorToZoho(
     entityId: vendorId,
     metadata: { zohoVendorId, source },
   });
+  return true;
 }
 
 function toUpsert(bill: client.ZohoBill, status: BillStatus) {
@@ -162,6 +176,12 @@ export interface ZohoVendorImportResult {
   skippedExisting: number;
   /** Existing dashboard vendors that were linked to their matching Zoho contact. */
   linkedExisting: number;
+  /** Zoho contacts that matched multiple dashboard vendors or multiple contacts claimed one vendor. */
+  ambiguous: string[];
+  /** Dashboard vendors already linked to a different Zoho contact, or lost a race while linking. */
+  conflicts: string[];
+  /** Zoho contacts skipped because another Zoho contact has the same normalized name. */
+  duplicateZohoNames: string[];
   /** Imported, but missing contact person / mobile / email, so POs are blocked for them. */
   incomplete: string[];
   totalFromZoho: number;
@@ -195,7 +215,16 @@ export async function importVendorsFromZoho(
 
   const zohoVendors = await client.listVendors();
   if (!zohoVendors.length) {
-    return { imported: 0, skippedExisting: 0, linkedExisting: 0, incomplete: [], totalFromZoho: 0 };
+    return {
+      imported: 0,
+      skippedExisting: 0,
+      linkedExisting: 0,
+      ambiguous: [],
+      conflicts: [],
+      duplicateZohoNames: [],
+      incomplete: [],
+      totalFromZoho: 0,
+    };
   }
 
   // Read existing vendors once — same reason the bill sync does.
@@ -211,9 +240,12 @@ export async function importVendorsFromZoho(
   const incomplete: string[] = [];
   let skippedExisting = 0;
   let linkedExisting = 0;
+  const ambiguous: string[] = [];
+  const conflicts: string[] = [];
+  const duplicateZohoNames: string[] = [];
   const seenNames = new Set<string>();
   const linkedDashboardIds = new Set<string>();
-  const linksToWrite: { vendorId: string; zohoVendorId: string }[] = [];
+  const linksToWrite: { name: string; vendorId: string; zohoVendorId: string }[] = [];
 
   // Work out which vendors are actually new before spending a request on each. A matching
   // dashboard vendor is linked in place, rather than skipped, so it will use the durable
@@ -237,25 +269,32 @@ export async function importVendorsFromZoho(
     // dashboard GSTIN match exists.
     const matches = gstMatches.length ? gstMatches : nameMatches;
     if (matches.length) {
-      // Never guess when multiple records match, or when the matching dashboard vendor is
-      // already linked to a different Zoho contact.
+      // Never guess when multiple records match.
+      if (matches.length > 1) {
+        ambiguous.push(name);
+        return false;
+      }
+
       if (matches.length === 1) {
         const match = matches[0];
         if (!match.zohoVendorId && !linkedDashboardIds.has(match.id)) {
-          linksToWrite.push({ vendorId: match.id, zohoVendorId: v.id });
+          linksToWrite.push({ name, vendorId: match.id, zohoVendorId: v.id });
           linkedDashboardIds.add(match.id);
-          linkedExisting++;
           return false;
         }
+        if (linkedDashboardIds.has(match.id)) {
+          ambiguous.push(name);
+        } else {
+          conflicts.push(name);
+        }
       }
-      skippedExisting++;
       return false;
     }
 
     if (seenNames.has(normalizeVendorName(name))) {
       // Two Zoho contacts can share a name; keep the first rather than create confusing
       // near-duplicates in the dashboard.
-      skippedExisting++;
+      duplicateZohoNames.push(name);
       return false;
     }
     seenNames.add(normalizeVendorName(name));
@@ -263,7 +302,11 @@ export async function importVendorsFromZoho(
   });
 
   for (const link of linksToWrite) {
-    await linkVendorToZoho(link.vendorId, link.zohoVendorId, actorUserId, "import");
+    if (await linkVendorToZoho(link.vendorId, link.zohoVendorId, actorUserId, "import")) {
+      linkedExisting++;
+    } else {
+      conflicts.push(link.name);
+    }
   }
 
   // The contacts list omits contact_persons, addresses and gst_no, so each new vendor
@@ -343,7 +386,16 @@ export async function importVendorsFromZoho(
     });
   }
 
-  return { imported, skippedExisting, linkedExisting, incomplete, totalFromZoho: zohoVendors.length };
+  return {
+    imported,
+    skippedExisting,
+    linkedExisting,
+    ambiguous,
+    conflicts,
+    duplicateZohoNames,
+    incomplete,
+    totalFromZoho: zohoVendors.length,
+  };
 }
 
 export async function getStatus() {
@@ -482,7 +534,9 @@ export async function createAndLinkVendor(vendorId: string, actorUserId: string 
   }
 
   if (matches.length === 1) {
-    await linkVendorToZoho(vendorId, matches[0].id, actorUserId, "match");
+    if (!(await linkVendorToZoho(vendorId, matches[0].id, actorUserId, "match"))) {
+      throw new HttpError(409, "That Zoho vendor is already linked to another dashboard vendor.");
+    }
     return {
       vendorId,
       zohoVendorId: matches[0].id,

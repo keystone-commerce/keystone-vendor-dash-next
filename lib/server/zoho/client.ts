@@ -460,7 +460,7 @@ export async function listVendors(): Promise<ZohoVendorSummary[]> {
 
       out.push({
         id: String(c.contact_id),
-        name: String(c.contact_name ?? c.company_name ?? ""),
+        name: String(c.contact_name || c.company_name || ""),
         contactName: person || undefined,
         email: String(c.email ?? "").trim() || undefined,
         phone: phone || undefined,

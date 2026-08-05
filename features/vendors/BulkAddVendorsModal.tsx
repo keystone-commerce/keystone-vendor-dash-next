@@ -65,11 +65,15 @@ export function BulkAddVendorsModal({ onClose }: { onClose: () => void }) {
     try {
       const res = await zohoApi.importVendors(category);
       setZohoReport(res);
-      if (res.imported) {
-        toast.success(`Imported ${res.imported} vendor(s) from Zoho.`);
+      if (res.imported || res.linkedExisting) {
+        toast.success(
+          `Imported ${res.imported} and linked ${res.linkedExisting} existing vendor(s).`,
+        );
         qc.invalidateQueries();
       } else if (res.totalFromZoho === 0) {
         toast("That Zoho organisation has no vendor contacts.");
+      } else if (res.ambiguous.length || res.conflicts.length || res.duplicateZohoNames.length) {
+        toast.error("Some Zoho vendors need review before they can be linked.");
       } else {
         toast(`Nothing new — all ${res.skippedExisting} Zoho vendor(s) are already here.`);
       }
@@ -117,6 +121,25 @@ export function BulkAddVendorsModal({ onClose }: { onClose: () => void }) {
                 <strong>{zohoReport.skippedExisting}</strong> already present · Zoho has{" "}
                 {zohoReport.totalFromZoho} vendor(s).
               </div>
+              {zohoReport.ambiguous.length > 0 && (
+                <div className="mt-2 text-xs text-keystone-amber">
+                  ⚠ {zohoReport.ambiguous.length} ambiguous match(es) need review:{" "}
+                  <span className="text-muted">{zohoReport.ambiguous.join(", ")}</span>
+                </div>
+              )}
+              {zohoReport.conflicts.length > 0 && (
+                <div className="mt-2 text-xs text-keystone-red">
+                  ⚠ {zohoReport.conflicts.length} conflict(s) were not linked because the
+                  dashboard vendor is already linked elsewhere:{" "}
+                  <span className="text-muted">{zohoReport.conflicts.join(", ")}</span>
+                </div>
+              )}
+              {zohoReport.duplicateZohoNames.length > 0 && (
+                <div className="mt-2 text-xs text-keystone-amber">
+                  ⚠ {zohoReport.duplicateZohoNames.length} duplicate Zoho name(s) were skipped:{" "}
+                  <span className="text-muted">{zohoReport.duplicateZohoNames.join(", ")}</span>
+                </div>
+              )}
               {zohoReport.incomplete.length > 0 && (
                 <div className="mt-2 text-xs text-keystone-amber">
                   ⚠ {zohoReport.incomplete.length} vendor(s) came across without a contact
