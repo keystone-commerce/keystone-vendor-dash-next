@@ -18,10 +18,86 @@ export interface CreatePoInput {
   vendorId: string;
   poNumber?: string | null;
   date?: string;
-  lineItems: { name: string; quantity: number; rate: number; hsn?: string }[];
+  /** gstPercent drives the Zoho line's tax_id — see resolveTaxId(). */
+  lineItems: { name: string; quantity: number; rate: number; hsn?: string; gstPercent?: number }[];
 }
 
 let cachedPurchaseAccountId: string | null = null;
+
+type OrgTax = { id: string; name: string; percent: number };
+let cachedTaxes: { at: number; taxes: OrgTax[] } | null = null;
+
+/**
+ * How long a tax list is trusted. Short on purpose: when a rate is missing the error
+ * tells the admin to add it in Zoho, and they'll retry within a minute or two. An
+ * indefinite cache would keep rejecting the PO with a list that's no longer true, and
+ * an org that switches GST on after an empty response was cached would keep having its
+ * tax_id omitted — both only resolving on a process restart.
+ */
+const TAX_CACHE_TTL_MS = 60_000;
+
+/**
+ * The organisation's configured taxes, by percentage.
+ *
+ * A GST-registered Zoho org refuses a purchase order whose lines don't declare a tax:
+ * `{"code":110802,"message":"Specify either a Tax or Tax Exemption or Reverse Charge."}`.
+ * So each line needs a `tax_id`, and the id is org-specific — it has to be looked up
+ * rather than hardcoded.
+ *
+ * Only a successful response is cached, so a transient failure doesn't convince this
+ * instance that the org has no taxes.
+ */
+async function orgTaxes(): Promise<OrgTax[]> {
+  if (cachedTaxes && Date.now() - cachedTaxes.at < TAX_CACHE_TTL_MS) return cachedTaxes.taxes;
+  const json = await api("GET", "/settings/taxes");
+  const taxes: OrgTax[] = (json?.taxes ?? [])
+    .map((t: any) => ({
+      id: String(t.tax_id ?? ""),
+      name: String(t.tax_name ?? ""),
+      percent: Number(t.tax_percentage ?? 0),
+    }))
+    .filter((t: OrgTax) => t.id);
+  cachedTaxes = { at: Date.now(), taxes };
+  return taxes;
+}
+
+/**
+ * Zoho tax id for a GST percentage, or null when the org isn't taxed at all.
+ *
+ * Throws with the percentages the org *does* have rather than letting Zoho answer with
+ * an opaque 110802 — the fix is always "add that rate in Zoho, or change it on the PO",
+ * and that's only actionable if you know which rate is missing.
+ */
+async function resolveTaxId(gstPercent: number | undefined): Promise<string | null> {
+  const taxes = await orgTaxes();
+  // Not a GST org (no taxes configured) — lines then carry no tax, which is what such an
+  // org expects and is how this worked before.
+  if (!taxes.length) return null;
+
+  const pct = Number(gstPercent ?? 0);
+  // An exact match includes a 0%/"Nil Rated" entry if the org has one configured.
+  const match = taxes.find((t) => Math.abs(t.percent - pct) < 0.001);
+  if (match) return match.id;
+
+  const available = [...new Set(taxes.map((t) => t.percent))].sort((a, b) => a - b);
+
+  // Zoho wants a tax_exemption_id for a genuinely untaxed line, which is an org-level
+  // record the app has no way to choose. Say that plainly instead of quoting rates.
+  if (pct === 0) {
+    throw new Error(
+      `A purchase order line has no GST %, and this Zoho organisation is GST-registered — ` +
+        `it won't accept an untaxed line without a tax exemption, which has to be set in ` +
+        `Zoho. Put a GST % on every line (the org has ${available.join("%, ")}%).`,
+    );
+  }
+
+  throw new Error(
+    `This Zoho organisation has no tax configured at ${pct}%. ` +
+      `It has: ${available.join("%, ")}%. ` +
+      `Either use one of those as the GST % on the purchase order, or add a ${pct}% tax in ` +
+      `Zoho Books (Settings → Taxes).`,
+  );
+}
 
 /** Authed JSON request against the Books API; validates Zoho's `code` field. */
 async function api(method: string, path: string, body?: unknown): Promise<any> {
@@ -217,16 +293,31 @@ export async function createPurchaseOrder(
   input: CreatePoInput,
 ): Promise<{ zohoId: string; poNumber: string; total: number; status: string }> {
   const purchaseAccountId = await getPurchaseAccountId();
+
+  // Resolve every line's tax BEFORE touching items. resolvePurchasableItemId() can POST
+  // /items, which creates a product in the customer's Zoho — an irreversible write. If a
+  // later line then failed tax resolution, the purchase order would be rejected while the
+  // items it had already created stayed behind, and each retry would add more. Taxes are
+  // read-only and cheap to check, so they're validated up front: either the whole order
+  // can be built or nothing is created.
+  const taxIds: (string | null)[] = [];
+  for (const li of input.lineItems) taxIds.push(await resolveTaxId(li.gstPercent));
+
   const lineItems = [];
-  for (const li of input.lineItems) {
+  for (const [i, li] of input.lineItems.entries()) {
     const itemId = await resolvePurchasableItemId(li.name, li.rate, li.hsn, purchaseAccountId);
     // NOTE: Zoho stores HSN on the item master (set during item creation above), not
     // on the purchase-order line. Sending hsn_or_sac here returns 400 "Invalid Element
     // hsn_or_sac", so it's intentionally omitted from the PO line payload.
+    // tax_id is sent only when the org actually has taxes configured: a GST-registered org
+    // rejects untaxed lines with 110802, while an org with no taxes has no id to send. So
+    // it follows the organisation rather than being assumed either way.
+    const taxId = taxIds[i];
     lineItems.push({
       item_id: itemId,
       rate: li.rate,
       quantity: li.quantity,
+      ...(taxId ? { tax_id: taxId } : {}),
     });
   }
   const json = await api("POST", "/purchaseorders", {

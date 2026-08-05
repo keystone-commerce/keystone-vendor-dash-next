@@ -7,7 +7,8 @@ import * as client from "./zoho/client";
 export interface CreateZohoPoInput {
   zohoVendorId: string;
   poNumber?: string | null;
-  lineItems: { name: string; quantity: number; rate: number; hsn?: string }[];
+  /** gstPercent is required by GST-registered Zoho orgs — it resolves to the line's tax_id. */
+  lineItems: { name: string; quantity: number; rate: number; hsn?: string; gstPercent?: number }[];
   emailTo?: string[];
 }
 
