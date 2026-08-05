@@ -7,6 +7,8 @@ import * as client from "./zoho/client";
 export interface CreateZohoPoInput {
   zohoVendorId: string;
   poNumber?: string | null;
+  /** Supplier GSTIN — its state code decides CGST+SGST vs IGST on the Zoho lines. */
+  vendorGstin?: string | null;
   /** gstPercent is required by GST-registered Zoho orgs — it resolves to the line's tax_id. */
   lineItems: { name: string; quantity: number; rate: number; hsn?: string; gstPercent?: number }[];
   emailTo?: string[];
@@ -30,6 +32,7 @@ export async function createZohoPurchaseOrder(input: CreateZohoPoInput): Promise
   const po = await client.createPurchaseOrder({
     vendorId: input.zohoVendorId,
     poNumber: input.poNumber,
+    vendorGstin: input.vendorGstin,
     lineItems: input.lineItems,
   });
 
