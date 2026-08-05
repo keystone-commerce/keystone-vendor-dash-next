@@ -387,6 +387,9 @@ export async function approvePurchaseOrder(id: string, actorUserId: string | nul
     result = await createZohoPurchaseOrder({
       zohoVendorId: po.vendor.zohoVendorId,
       poNumber: po.poNumber,
+      // Decides CGST+SGST vs IGST on the Zoho lines — the same GSTIN state code the PDF
+      // uses for its own split, so the document and Zoho can't disagree.
+      vendorGstin: po.vendor.gstin,
       lineItems,
     });
   } catch (err) {

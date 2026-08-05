@@ -18,13 +18,36 @@ export interface CreatePoInput {
   vendorId: string;
   poNumber?: string | null;
   date?: string;
+  /**
+   * Supplier's GSTIN. Its first two digits are the state code, which decides whether the
+   * line carries CGST+SGST or IGST — see resolveTaxId(). Optional: when it's missing the
+   * treatment is assumed intra-state and corrected from Zoho's own answer if wrong.
+   */
+  vendorGstin?: string | null;
   /** gstPercent drives the Zoho line's tax_id — see resolveTaxId(). */
   lineItems: { name: string; quantity: number; rate: number; hsn?: string; gstPercent?: number }[];
 }
 
+/** Keystone's own state — the place of supply every PO is raised against. */
+const KEYSTONE_STATE_CODE = "29"; // Karnataka
+
+/**
+ * Inter-state supply? Decided by the supplier's GSTIN state code, the same rule the PO PDF
+ * uses for its CGST/SGST-vs-IGST split, so the document and Zoho agree.
+ *
+ * With no usable GSTIN this returns false (assume intra-state). That's a guess, and
+ * createPurchaseOrder corrects it from Zoho's response rather than relying on it.
+ */
+function isInterState(gstin: string | null | undefined): boolean {
+  const code = (gstin ?? "").trim().slice(0, 2);
+  if (!/^\d{2}$/.test(code)) return false;
+  return code !== KEYSTONE_STATE_CODE;
+}
+
 let cachedPurchaseAccountId: string | null = null;
 
-type OrgTax = { id: string; name: string; percent: number };
+/** `type` is Zoho's tax_type: for India one of igst | cgst | sgst | nil | cess, or "" for a group. */
+type OrgTax = { id: string; name: string; percent: number; type: string };
 let cachedTaxes: { at: number; taxes: OrgTax[] } | null = null;
 
 /**
@@ -55,6 +78,7 @@ async function orgTaxes(): Promise<OrgTax[]> {
       id: String(t.tax_id ?? ""),
       name: String(t.tax_name ?? ""),
       percent: Number(t.tax_percentage ?? 0),
+      type: String(t.tax_type ?? "").toLowerCase(),
     }))
     .filter((t: OrgTax) => t.id);
   cachedTaxes = { at: Date.now(), taxes };
@@ -64,22 +88,44 @@ async function orgTaxes(): Promise<OrgTax[]> {
 /**
  * Zoho tax id for a GST percentage, or null when the org isn't taxed at all.
  *
- * Throws with the percentages the org *does* have rather than letting Zoho answer with
- * an opaque 110802 — the fix is always "add that rate in Zoho, or change it on the PO",
- * and that's only actionable if you know which rate is missing.
+ * The percentage alone isn't enough. Indian GST splits by where the supplier is:
+ *   - intra-state (supplier in Karnataka, same as Keystone) -> CGST + SGST, which Zoho
+ *     models as a tax *group* at the full rate (e.g. "GST18" = CGST 9 + SGST 9)
+ *   - inter-state -> a single IGST tax at the full rate
+ * Both read as "18%", so matching on percentage alone picks one at random and Zoho answers
+ * `{"code":3032,"message":"IGST has to be applied as this is an interstate transaction"}`.
+ * `tax_type` is the discriminator: igst | cgst | sgst | nil | cess, empty for a group.
+ *
+ * Errors list the org's actual taxes with names and types, because when this goes wrong
+ * the only useful next step is seeing what Zoho actually has configured.
  */
-async function resolveTaxId(gstPercent: number | undefined): Promise<string | null> {
+async function resolveTaxId(
+  gstPercent: number | undefined,
+  interState: boolean,
+): Promise<string | null> {
   const taxes = await orgTaxes();
   // Not a GST org (no taxes configured) — lines then carry no tax, which is what such an
   // org expects and is how this worked before.
   if (!taxes.length) return null;
 
   const pct = Number(gstPercent ?? 0);
-  // An exact match includes a 0%/"Nil Rated" entry if the org has one configured.
-  const match = taxes.find((t) => Math.abs(t.percent - pct) < 0.001);
-  if (match) return match.id;
+  const atRate = taxes.filter((t) => Math.abs(t.percent - pct) < 0.001);
 
-  const available = [...new Set(taxes.map((t) => t.percent))].sort((a, b) => a - b);
+  const isIgst = (t: OrgTax) => t.type === "igst" || /igst/i.test(t.name);
+  // A single CGST or SGST line is never right on its own — intra-state needs the group
+  // that carries both, which Zoho reports with no tax_type.
+  const isHalfOfPair = (t: OrgTax) => t.type === "cgst" || t.type === "sgst";
+
+  const pick = interState
+    ? atRate.find(isIgst)
+    : (atRate.find((t) => !isIgst(t) && !isHalfOfPair(t)) ?? atRate.find((t) => !isIgst(t)));
+
+  if (pick) return pick.id;
+
+  const describe = () =>
+    taxes
+      .map((t) => `${t.name || "(unnamed)"} ${t.percent}%${t.type ? ` [${t.type}]` : " [group]"}`)
+      .join(", ");
 
   // Zoho wants a tax_exemption_id for a genuinely untaxed line, which is an org-level
   // record the app has no way to choose. Say that plainly instead of quoting rates.
@@ -87,15 +133,15 @@ async function resolveTaxId(gstPercent: number | undefined): Promise<string | nu
     throw new Error(
       `A purchase order line has no GST %, and this Zoho organisation is GST-registered — ` +
         `it won't accept an untaxed line without a tax exemption, which has to be set in ` +
-        `Zoho. Put a GST % on every line (the org has ${available.join("%, ")}%).`,
+        `Zoho. Put a GST % on every line. The org has: ${describe()}.`,
     );
   }
 
+  const kind = interState ? "IGST" : "CGST+SGST";
   throw new Error(
-    `This Zoho organisation has no tax configured at ${pct}%. ` +
-      `It has: ${available.join("%, ")}%. ` +
-      `Either use one of those as the GST % on the purchase order, or add a ${pct}% tax in ` +
-      `Zoho Books (Settings → Taxes).`,
+    `This Zoho organisation has no ${kind} tax at ${pct}%, which is what a ` +
+      `${interState ? "inter" : "intra"}-state supply needs. Configured taxes: ${describe()}. ` +
+      `Add the missing rate in Zoho Books (Settings → Taxes → GST), or use a rate that exists.`,
   );
 }
 
@@ -300,32 +346,62 @@ export async function createPurchaseOrder(
   // items it had already created stayed behind, and each retry would add more. Taxes are
   // read-only and cheap to check, so they're validated up front: either the whole order
   // can be built or nothing is created.
-  const taxIds: (string | null)[] = [];
-  for (const li of input.lineItems) taxIds.push(await resolveTaxId(li.gstPercent));
+  let interState = isInterState(input.vendorGstin);
+  const resolveAll = async (inter: boolean) => {
+    const ids: (string | null)[] = [];
+    for (const li of input.lineItems) ids.push(await resolveTaxId(li.gstPercent, inter));
+    return ids;
+  };
+  let taxIds = await resolveAll(interState);
 
-  const lineItems = [];
-  for (const [i, li] of input.lineItems.entries()) {
-    const itemId = await resolvePurchasableItemId(li.name, li.rate, li.hsn, purchaseAccountId);
-    // NOTE: Zoho stores HSN on the item master (set during item creation above), not
-    // on the purchase-order line. Sending hsn_or_sac here returns 400 "Invalid Element
-    // hsn_or_sac", so it's intentionally omitted from the PO line payload.
-    // tax_id is sent only when the org actually has taxes configured: a GST-registered org
-    // rejects untaxed lines with 110802, while an org with no taxes has no id to send. So
-    // it follows the organisation rather than being assumed either way.
-    const taxId = taxIds[i];
-    lineItems.push({
-      item_id: itemId,
+  // Items are resolved once and reused, so a tax-treatment retry cannot create them twice.
+  const itemIds: string[] = [];
+  for (const li of input.lineItems) {
+    itemIds.push(await resolvePurchasableItemId(li.name, li.rate, li.hsn, purchaseAccountId));
+  }
+
+  const buildLines = (ids: (string | null)[]) =>
+    input.lineItems.map((li, i) => ({
+      // NOTE: Zoho stores HSN on the item master (set during item creation above), not
+      // on the purchase-order line. Sending hsn_or_sac here returns 400 "Invalid Element
+      // hsn_or_sac", so it's intentionally omitted from the PO line payload.
+      item_id: itemIds[i],
       rate: li.rate,
       quantity: li.quantity,
-      ...(taxId ? { tax_id: taxId } : {}),
+      // tax_id is sent only when the org actually has taxes configured: a GST-registered
+      // org rejects untaxed lines with 110802, while an org with no taxes has no id to
+      // send. So it follows the organisation rather than being assumed either way.
+      ...(ids[i] ? { tax_id: ids[i] } : {}),
+    }));
+
+  const post = (ids: (string | null)[]) =>
+    api("POST", "/purchaseorders", {
+      vendor_id: input.vendorId,
+      date: input.date ?? new Date().toISOString().slice(0, 10),
+      ...(input.poNumber ? { purchaseorder_number: input.poNumber } : {}),
+      line_items: buildLines(ids),
     });
+
+  let json;
+  try {
+    json = await post(taxIds);
+  } catch (err) {
+    // Zoho is the authority on place of supply — it knows the vendor's state from the
+    // contact record, which may be more accurate than the GSTIN we hold (or we may hold
+    // none). Codes 3032/3062 mean it wanted the other treatment, so flip and retry once
+    // rather than making the user fix data to satisfy a guess we made.
+    const msg = (err as Error).message;
+    const wrongTreatment =
+      /"code":\s*(3032|3062)/.test(msg) || /IGST has to be applied|CGST.*SGST.*applied/i.test(msg);
+    if (!wrongTreatment) throw err;
+
+    interState = !interState;
+    console.warn(
+      `[zoho] Zoho wants a ${interState ? "inter" : "intra"}-state tax treatment for this PO; retrying.`,
+    );
+    taxIds = await resolveAll(interState);
+    json = await post(taxIds);
   }
-  const json = await api("POST", "/purchaseorders", {
-    vendor_id: input.vendorId,
-    date: input.date ?? new Date().toISOString().slice(0, 10),
-    ...(input.poNumber ? { purchaseorder_number: input.poNumber } : {}),
-    line_items: lineItems,
-  });
   const po = json?.purchaseorder ?? {};
   return {
     zohoId: String(po.purchaseorder_id ?? ""),
