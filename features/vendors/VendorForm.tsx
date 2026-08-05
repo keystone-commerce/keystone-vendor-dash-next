@@ -100,6 +100,8 @@ export function VendorForm({ vendor, onClose }: Props) {
       toast.success(
         res.alreadyLinked
           ? "Already linked to Zoho."
+          : res.matchedExisting
+            ? "Found the existing Zoho vendor and linked it."
           : `Created in Zoho & linked (id ${res.zohoVendorId}).`,
       );
       qc.invalidateQueries();

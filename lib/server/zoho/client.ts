@@ -423,12 +423,99 @@ export async function emailPurchaseOrder(
   });
 }
 
-export async function listVendors(): Promise<{ id: string; name: string }[]> {
-  const json = await api("GET", "/contacts?contact_type=vendor&per_page=200");
-  return (json?.contacts ?? []).map((c: any) => ({
-    id: String(c.contact_id),
-    name: String(c.contact_name ?? c.company_name ?? ""),
-  }));
+export interface ZohoVendorSummary {
+  id: string;
+  name: string;
+  /** Primary contact's name, assembled from first/last name when Zoho has them. */
+  contactName?: string;
+  email?: string;
+  /** Digits only. Zoho stores things like "+91 98765 43210". */
+  phone?: string;
+  gstin?: string;
+  billingAddress?: string;
+  shippingAddress?: string;
+}
+
+/**
+ * Every vendor contact in the Zoho organisation.
+ *
+ * Paged like listBills — the contacts endpoint caps a page at 200, and silently
+ * returning only the first page is the bug that made the bill sync look broken.
+ */
+export async function listVendors(): Promise<ZohoVendorSummary[]> {
+  const out: ZohoVendorSummary[] = [];
+  let page = 1;
+  let hasMore = true;
+
+  while (hasMore) {
+    const json = await api("GET", `/contacts?contact_type=vendor&per_page=200&page=${page}`);
+    for (const c of json?.contacts ?? []) {
+      // Zoho keeps the person's name split across first/last on the contact itself,
+      // and separately on contact_persons; the top-level pair is what the list returns.
+      const person = [c.first_name, c.last_name].filter(Boolean).join(" ").trim();
+      // Take the last 10 digits so a country code or spacing doesn't fail our 10-digit
+      // rule; anything that doesn't yield 10 is treated as absent.
+      const digits = String(c.mobile || c.phone || "").replace(/\D/g, "");
+      const phone = digits.length >= 10 ? digits.slice(-10) : "";
+
+      out.push({
+        id: String(c.contact_id),
+        name: String(c.contact_name || c.company_name || ""),
+        contactName: person || undefined,
+        email: String(c.email ?? "").trim() || undefined,
+        phone: phone || undefined,
+        gstin: String(c.gst_no ?? "").trim().toUpperCase() || undefined,
+      });
+    }
+    hasMore = Boolean(json?.page_context?.has_more_page);
+    page += 1;
+    if (page > 50) break; // 10,000 contacts — a runaway guard, not a real limit
+  }
+  return out;
+}
+
+/** Flatten a Zoho address object into the single line we store. */
+function fromZohoAddress(a: any): string | undefined {
+  if (!a) return undefined;
+  const parts = [a.attention, a.address, a.street2, a.city, a.state, a.zip]
+    .map((p: unknown) => String(p ?? "").trim())
+    .filter(Boolean);
+  return parts.length ? parts.join(", ") : undefined;
+}
+
+/**
+ * Fill in the fields the contacts *list* doesn't return.
+ *
+ * Verified against a live org: the list response carries contact_id, contact_name,
+ * first_name/last_name, email, phone and mobile — but **not** contact_persons, not
+ * billing/shipping addresses, and not gst_no. Only GET /contacts/{id} has those, so a
+ * list-only import would create every vendor with a blank contact person, no GSTIN and no
+ * address, leaving all of them unable to raise a PO.
+ *
+ * One request per vendor, so the caller throttles.
+ */
+export async function fetchVendorDetail(contactId: string): Promise<Partial<ZohoVendorSummary>> {
+  const json = await api("GET", `/contacts/${contactId}`);
+  const c = json?.contact ?? {};
+
+  // The person's name lives on the primary contact person, not on the contact itself —
+  // the top-level first_name/last_name come back empty even when a person is recorded.
+  const persons: any[] = Array.isArray(c.contact_persons) ? c.contact_persons : [];
+  const primary = persons.find((p) => p.is_primary_contact) ?? persons[0] ?? {};
+  const person =
+    [primary.first_name, primary.last_name].filter(Boolean).join(" ").trim() ||
+    [c.first_name, c.last_name].filter(Boolean).join(" ").trim();
+
+  const digits = String(primary.mobile || primary.phone || c.mobile || c.phone || "").replace(/\D/g, "");
+
+  return {
+    contactName: person || undefined,
+    email: String(primary.email || c.email || "").trim() || undefined,
+    phone: digits.length >= 10 ? digits.slice(-10) : undefined,
+    gstin: String(c.gst_no ?? "").trim().toUpperCase() || undefined,
+    billingAddress: fromZohoAddress(c.billing_address),
+    shippingAddress: fromZohoAddress(c.shipping_address),
+  };
 }
 
 let cachedOrgGstEnabled: boolean | null = null;

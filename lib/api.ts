@@ -107,6 +107,18 @@ export interface VendorImportResult {
   errors: { row: number; message: string }[];
 }
 
+export interface ZohoVendorImportResult {
+  imported: number;
+  skippedExisting: number;
+  linkedExisting: number;
+  ambiguous: string[];
+  conflicts: string[];
+  duplicateZohoNames: string[];
+  /** Names imported without contact person / mobile / email — POs are blocked for these. */
+  incomplete: string[];
+  totalFromZoho: number;
+}
+
 // ── catalogues ────────────────────────────────────────────────────────────────
 export interface CatalogueItemInput {
   name: string;
@@ -225,10 +237,23 @@ export const zohoApi = {
     api.post<CreatePurchaseOrderResult>("/zoho/purchase-orders", input).then((r) => r.data),
   vendors: () =>
     api.get<{ id: string; name: string }[]>("/zoho/vendors").then((r) => r.data),
+  /**
+   * Bulk-create dashboard vendors from Zoho's vendor contacts, each linked by
+   * zohoVendorId so existing bills match on the next sync. Admin only.
+   */
+  importVendors: (category: string) =>
+    api
+      .post<ZohoVendorImportResult>("/zoho/vendors/import", { category })
+      .then((r) => r.data),
   /** Create a matching Zoho vendor for a dashboard vendor and save its id. */
   createAndLinkVendor: (vendorId: string) =>
     api
-      .post<{ vendorId: string; zohoVendorId: string; alreadyLinked: boolean }>(
+      .post<{
+        vendorId: string;
+        zohoVendorId: string;
+        alreadyLinked: boolean;
+        matchedExisting?: boolean;
+      }>(
         "/zoho/vendors/link",
         { vendorId },
       )
