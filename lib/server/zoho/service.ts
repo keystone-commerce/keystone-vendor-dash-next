@@ -398,6 +398,116 @@ export async function importVendorsFromZoho(
   };
 }
 
+export interface ZohoVendorDetailRefreshResult {
+  totalLinked: number;
+  refreshed: number;
+  updated: number;
+  incomplete: string[];
+  errors: string[];
+}
+
+/**
+ * Refresh details for vendors already linked to Zoho. The initial import skips a
+ * vendor whose Zoho ID is already present; this separate pass fills contact details
+ * that were missing or unavailable during that import without creating anything in Zoho.
+ */
+export async function refreshLinkedVendorDetails(
+  actorUserId: string | null,
+): Promise<ZohoVendorDetailRefreshResult> {
+  const linked = await prisma.vendor.findMany({
+    where: { zohoVendorId: { not: null } },
+    select: {
+      id: true,
+      name: true,
+      zohoVendorId: true,
+      contactName: true,
+      phone: true,
+      email: true,
+      gstin: true,
+      gstAddress: true,
+      billingAddress: true,
+      shippingAddress: true,
+    },
+    orderBy: { name: "asc" },
+  });
+
+  const gstinOwners = new Map<string, string>();
+  const gstinRows = await prisma.vendor.findMany({ select: { id: true, gstin: true } });
+  for (const row of gstinRows) {
+    const gstin = normalizeVendorGstin(row.gstin);
+    if (gstin) gstinOwners.set(gstin, row.id);
+  }
+
+  let refreshed = 0;
+  let updated = 0;
+  const incomplete: string[] = [];
+  const errors: string[] = [];
+  const DETAIL_CONCURRENCY = 4;
+
+  for (let i = 0; i < linked.length; i += DETAIL_CONCURRENCY) {
+    const slice = linked.slice(i, i + DETAIL_CONCURRENCY);
+    const settled = await Promise.all(
+      slice.map(async (vendor) => {
+        try {
+          return { vendor, detail: await client.fetchVendorDetail(vendor.zohoVendorId as string) };
+        } catch (err) {
+          return { vendor, error: (err as Error).message };
+        }
+      }),
+    );
+
+    for (const result of settled) {
+      const vendor = result.vendor;
+      if ("error" in result) {
+        errors.push(`${vendor.name}: ${result.error}`);
+        if (!vendor.contactName || !vendor.phone || !vendor.email) incomplete.push(vendor.name);
+        continue;
+      }
+
+      const detail = result.detail;
+      const data: Record<string, string> = {};
+      if (detail.contactName) data.contactName = detail.contactName;
+      if (detail.phone) data.phone = detail.phone;
+      if (detail.email) data.email = detail.email;
+      if (detail.billingAddress) {
+        data.billingAddress = detail.billingAddress;
+        data.gstAddress = detail.billingAddress;
+      }
+      if (detail.shippingAddress) data.shippingAddress = detail.shippingAddress;
+
+      const gstin = normalizeVendorGstin(detail.gstin);
+      if (gstin && !gstinError(gstin)) {
+        const owner = gstinOwners.get(gstin);
+        if (!owner || owner === vendor.id) {
+          data.gstin = gstin;
+          gstinOwners.set(gstin, vendor.id);
+        } else {
+          errors.push(`${vendor.name}: GSTIN ${gstin} is already assigned to another vendor.`);
+        }
+      }
+
+      if (Object.keys(data).length) {
+        await prisma.vendor.update({ where: { id: vendor.id }, data });
+        updated++;
+      }
+      refreshed++;
+
+      const merged = { ...vendor, ...data };
+      if (!merged.contactName || !merged.phone || !merged.email) incomplete.push(vendor.name);
+    }
+  }
+
+  await audit({
+    userId: actorUserId,
+    action: "ZOHO_VENDOR_DETAIL_REFRESH",
+    entityType: "Vendor",
+    entityId: "linked",
+    metadata: { totalLinked: linked.length, refreshed, updated, incomplete: incomplete.length, errors: errors.length },
+  });
+
+  return { totalLinked: linked.length, refreshed, updated, incomplete, errors };
+}
+
 export async function getStatus() {
   const enabled = process.env.ZOHO_ENABLED === "true";
   const health = enabled ? await healthCheck() : { ok: false, message: "Demo mode (ZOHO_ENABLED=false)." };

@@ -12,6 +12,7 @@ interface Props {
   allowEmpty?: boolean;
   emptyLabel?: string;
   className?: string;
+  disabled?: boolean;
 }
 
 /**
@@ -26,6 +27,7 @@ export function SearchableSelect({
   allowEmpty = false,
   emptyLabel = "All",
   className = "",
+  disabled = false,
 }: Props) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -59,7 +61,10 @@ export function SearchableSelect({
     <div className={`relative ${className}`} ref={ref}>
       <button
         type="button"
-        className="input flex items-center justify-between gap-2 text-left cursor-pointer"
+        className={`input flex items-center justify-between gap-2 text-left ${
+          disabled ? "opacity-60 cursor-not-allowed" : "cursor-pointer"
+        }`}
+        disabled={disabled}
         onClick={() => setOpen((v) => !v)}
       >
         <span className={shownLabel ? "truncate" : "truncate text-muted"}>

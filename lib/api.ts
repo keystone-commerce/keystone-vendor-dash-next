@@ -119,6 +119,14 @@ export interface ZohoVendorImportResult {
   totalFromZoho: number;
 }
 
+export interface ZohoVendorDetailRefreshResult {
+  totalLinked: number;
+  refreshed: number;
+  updated: number;
+  incomplete: string[];
+  errors: string[];
+}
+
 // ── catalogues ────────────────────────────────────────────────────────────────
 export interface CatalogueItemInput {
   name: string;
@@ -244,6 +252,10 @@ export const zohoApi = {
   importVendors: (category: string) =>
     api
       .post<ZohoVendorImportResult>("/zoho/vendors/import", { category })
+      .then((r) => r.data),
+  refreshVendorDetails: () =>
+    api
+      .post<ZohoVendorDetailRefreshResult>("/zoho/vendors/refresh")
       .then((r) => r.data),
   /** Create a matching Zoho vendor for a dashboard vendor and save its id. */
   createAndLinkVendor: (vendorId: string) =>

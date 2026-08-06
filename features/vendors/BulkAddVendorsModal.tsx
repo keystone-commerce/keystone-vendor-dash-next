@@ -2,7 +2,13 @@ import { useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { VENDOR_CATEGORIES } from "@shared";
-import { vendorsApi, zohoApi, VendorImportResult, ZohoVendorImportResult } from "@/lib/api";
+import {
+  vendorsApi,
+  zohoApi,
+  VendorImportResult,
+  ZohoVendorImportResult,
+  ZohoVendorDetailRefreshResult,
+} from "@/lib/api";
 import { apiError } from "@/lib/api-client";
 import { Modal } from "@/components/Modal";
 import { SearchableSelect } from "@/components/SearchableSelect";
@@ -19,9 +25,10 @@ export function BulkAddVendorsModal({ onClose }: { onClose: () => void }) {
   const qc = useQueryClient();
   const fileRef = useRef<HTMLInputElement>(null);
 
-  const [busy, setBusy] = useState<"csv" | "zoho" | null>(null);
+  const [busy, setBusy] = useState<"csv" | "zoho" | "refresh" | null>(null);
   const [csvReport, setCsvReport] = useState<VendorImportResult | null>(null);
   const [zohoReport, setZohoReport] = useState<ZohoVendorImportResult | null>(null);
+  const [refreshReport, setRefreshReport] = useState<ZohoVendorDetailRefreshResult | null>(null);
   const [category, setCategory] = useState<string>(VENDOR_CATEGORIES[0]);
 
   function download(text: string, filename: string) {
@@ -37,6 +44,7 @@ export function BulkAddVendorsModal({ onClose }: { onClose: () => void }) {
     setBusy("csv");
     setCsvReport(null);
     setZohoReport(null);
+    setRefreshReport(null);
     try {
       const res = await vendorsApi.importCsv(file);
       setCsvReport(res);
@@ -62,6 +70,7 @@ export function BulkAddVendorsModal({ onClose }: { onClose: () => void }) {
     setBusy("zoho");
     setCsvReport(null);
     setZohoReport(null);
+    setRefreshReport(null);
     try {
       const res = await zohoApi.importVendors(category);
       setZohoReport(res);
@@ -79,6 +88,29 @@ export function BulkAddVendorsModal({ onClose }: { onClose: () => void }) {
       }
     } catch (err) {
       toast.error(apiError(err, "Zoho import failed"));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function onRefreshDetails() {
+    setBusy("refresh");
+    setCsvReport(null);
+    setZohoReport(null);
+    setRefreshReport(null);
+    try {
+      const res = await zohoApi.refreshVendorDetails();
+      setRefreshReport(res);
+      if (res.updated) {
+        toast.success(`Refreshed ${res.updated} vendor(s) from Zoho.`);
+        qc.invalidateQueries();
+      } else if (!res.totalLinked) {
+        toast("No dashboard vendors are linked to Zoho yet.");
+      } else {
+        toast("No new vendor details were available in Zoho.");
+      }
+    } catch (err) {
+      toast.error(apiError(err, "Vendor detail refresh failed"));
     } finally {
       setBusy(null);
     }
@@ -111,7 +143,16 @@ export function BulkAddVendorsModal({ onClose }: { onClose: () => void }) {
             <button className="btn-primary" disabled={busy !== null} onClick={onZoho}>
               {busy === "zoho" ? "Importing…" : "Import from Zoho"}
             </button>
+            <button className="btn" disabled={busy !== null} onClick={onRefreshDetails}>
+              {busy === "refresh" ? "Refreshing…" : "Refresh linked details"}
+            </button>
           </div>
+
+          <p className="text-xs text-muted mt-2">
+            Refresh linked details fills missing contact person, mobile, email, GSTIN and
+            addresses for vendors already linked to Zoho. It does not create or edit anything
+            in Zoho.
+          </p>
 
           {zohoReport && (
             <div className="mt-3 text-sm">
@@ -146,6 +187,25 @@ export function BulkAddVendorsModal({ onClose }: { onClose: () => void }) {
                   person, mobile or email. They&apos;re saved, but a purchase order can&apos;t
                   be raised for them until those are filled in:{" "}
                   <span className="text-muted">{zohoReport.incomplete.join(", ")}</span>
+                </div>
+              )}
+            </div>
+          )}
+          {refreshReport && (
+            <div className="mt-3 text-sm">
+              Refreshed <strong>{refreshReport.refreshed}</strong> of{" "}
+              <strong>{refreshReport.totalLinked}</strong> linked vendor(s); updated{" "}
+              <strong>{refreshReport.updated}</strong>.
+              {refreshReport.incomplete.length > 0 && (
+                <div className="mt-2 text-xs text-keystone-amber">
+                  Still incomplete ({refreshReport.incomplete.length}):{" "}
+                  <span className="text-muted">{refreshReport.incomplete.join(", ")}</span>
+                </div>
+              )}
+              {refreshReport.errors.length > 0 && (
+                <div className="mt-2 text-xs text-keystone-red">
+                  Could not refresh {refreshReport.errors.length} vendor(s):{" "}
+                  <span className="text-muted">{refreshReport.errors.join("; ")}</span>
                 </div>
               )}
             </div>
