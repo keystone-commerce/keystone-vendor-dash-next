@@ -47,6 +47,13 @@ export function SearchableSelect({
     return () => document.removeEventListener("mousedown", onDoc);
   }, []);
 
+  useEffect(() => {
+    if (disabled) {
+      setOpen(false);
+      setQuery("");
+    }
+  }, [disabled]);
+
   const filtered = opts.filter((o) => o.label.toLowerCase().includes(query.toLowerCase()));
   const current = opts.find((o) => o.value === value);
   const shownLabel = current?.label || (allowEmpty ? emptyLabel : "");
@@ -73,7 +80,7 @@ export function SearchableSelect({
         <span className="text-orange-deep shrink-0">▾</span>
       </button>
 
-      {open && (
+      {!disabled && open && (
         <div className="absolute z-40 mt-1 w-full min-w-[220px] rounded-keystone border border-border bg-card shadow-xl">
           {showSearch && (
             <div className="p-2 border-b border-border">
