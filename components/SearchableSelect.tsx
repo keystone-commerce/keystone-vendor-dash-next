@@ -12,6 +12,7 @@ interface Props {
   allowEmpty?: boolean;
   emptyLabel?: string;
   className?: string;
+  disabled?: boolean;
 }
 
 /**
@@ -26,6 +27,7 @@ export function SearchableSelect({
   allowEmpty = false,
   emptyLabel = "All",
   className = "",
+  disabled = false,
 }: Props) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -45,6 +47,13 @@ export function SearchableSelect({
     return () => document.removeEventListener("mousedown", onDoc);
   }, []);
 
+  useEffect(() => {
+    if (disabled) {
+      setOpen(false);
+      setQuery("");
+    }
+  }, [disabled]);
+
   const filtered = opts.filter((o) => o.label.toLowerCase().includes(query.toLowerCase()));
   const current = opts.find((o) => o.value === value);
   const shownLabel = current?.label || (allowEmpty ? emptyLabel : "");
@@ -59,7 +68,10 @@ export function SearchableSelect({
     <div className={`relative ${className}`} ref={ref}>
       <button
         type="button"
-        className="input flex items-center justify-between gap-2 text-left cursor-pointer"
+        className={`input flex items-center justify-between gap-2 text-left ${
+          disabled ? "opacity-60 cursor-not-allowed" : "cursor-pointer"
+        }`}
+        disabled={disabled}
         onClick={() => setOpen((v) => !v)}
       >
         <span className={shownLabel ? "truncate" : "truncate text-muted"}>
@@ -68,7 +80,7 @@ export function SearchableSelect({
         <span className="text-orange-deep shrink-0">▾</span>
       </button>
 
-      {open && (
+      {!disabled && open && (
         <div className="absolute z-40 mt-1 w-full min-w-[220px] rounded-keystone border border-border bg-card shadow-xl">
           {showSearch && (
             <div className="p-2 border-b border-border">

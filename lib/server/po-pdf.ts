@@ -42,13 +42,25 @@ export type PoPdfStatus = "PENDING" | "APPROVED" | "REJECTED";
 export interface PoPdfInput {
   vendorName: string;
   poNumber?: string | null;
+  /** Hide the approval placeholder when the PO number is intentionally blank. */
+  showPoNumberPlaceholder?: boolean;
+  /** Payment terms shown in the PO header. */
+  paymentTerms?: string | null;
   createdAt?: Date;
   vendorCode?: string | null;
   /** Drives the status line. Defaults to PENDING (pre-approval document). */
   status?: PoPdfStatus;
+  /** Hide the status line when matching the blank official template's layout. */
+  showStatus?: boolean;
   lineItems: PoPdfLine[];
   /** Agreed delivery date, filled by procurement. Blank until one is set. */
   deliveryDate?: Date | null;
+  /**
+   * Render an empty form rather than a real order: no status line, and money cells left
+   * blank instead of showing Rs. 0.00. Used to produce the fill-in-by-hand template in
+   * docs/, so the printed layout can't drift from the one the app actually generates.
+   */
+  blank?: boolean;
   /** Supplier details for the "Supplier Details" block (all optional). */
   supplier?: {
     address?: string | null;
@@ -57,6 +69,9 @@ export interface PoPdfInput {
     email?: string | null;
     phone?: string | null;
   };
+  /** Optional buyer addresses for this document; the official template remains the fallback. */
+  billingAddress?: string | null;
+  deliveryAddress?: string | null;
 }
 
 // Helvetica is WinAnsi-encoded and can't render ₹ or smart quotes — normalise to
@@ -113,6 +128,26 @@ const TERMS: [string, string][] = [
   ["Governing Law", "Governed by the laws of India. Bengaluru, Karnataka courts shall have exclusive jurisdiction."],
   ["General", "These terms form the complete agreement. Keystone may revise future standard terms."],
 ];
+
+const addressLines = (value: string | null | undefined, fallback: string[]) => {
+  const wrap = (line: string) => {
+    const out: string[] = [];
+    let remaining = line;
+    while (remaining.length > 44) {
+      let cut = remaining.lastIndexOf(" ", 44);
+      if (cut < 20) cut = 44;
+      out.push(remaining.slice(0, cut).trim());
+      remaining = remaining.slice(cut).trim();
+    }
+    if (remaining) out.push(remaining);
+    return out;
+  };
+  const lines = (value ?? "")
+    .split(/\r?\n/)
+    .map((line) => line.trim().replace(/\s+,/g, ",").replace(/,{2,}/g, ","))
+    .filter(Boolean);
+  return lines.length ? lines.flatMap(wrap) : fallback;
+};
 
 /**
  * Build a Purchase Order PDF in Keystone's official layout (header grid, supplier
@@ -346,7 +381,13 @@ export async function buildPoPdf(input: PoPdfInput): Promise<Buffer> {
   const rowH = 16;
   const created = input.createdAt ?? new Date();
   const headerRows: [string, string, string, string][] = [
-    ["PO No.", input.poNumber || "(assigned on approval)", "PO Date", created.toLocaleDateString("en-IN")],
+    [
+      "PO No.",
+      input.poNumber || (input.showPoNumberPlaceholder === false ? "" : "(assigned on approval)"),
+      "PO Date",
+      // A blank template has no date to state — it's filled in when the form is used.
+      input.blank ? "" : created.toLocaleDateString("en-IN"),
+    ],
     [
       "Revision No.",
       "",
@@ -357,7 +398,7 @@ export async function buildPoPdf(input: PoPdfInput): Promise<Buffer> {
         ? new Date(input.deliveryDate).toLocaleDateString("en-IN", { timeZone: "UTC" })
         : "",
     ],
-    ["Buyer", "Keystone Commerce Private Limited", "Payment Terms", "30 Days"],
+    ["Buyer", "Keystone Commerce Private Limited", "Payment Terms", input.paymentTerms || "30 Days"],
     ["Currency", "INR", "Transport", ""],
     ["Incoterms", "-NA-", "Place of Supply", "Karnataka"],
     ["Project/Cost Centre", "", "Vendor Code", input.vendorCode || ""],
@@ -408,20 +449,22 @@ export async function buildPoPdf(input: PoPdfInput): Promise<Buffer> {
 
   // ---- Billing & Delivery Address (two fixed blocks side by side) ----
   sectionHeader("Billing & Delivery Address");
+  const billTo = addressLines(input.billingAddress, BILL_TO);
+  const shipTo = addressLines(input.deliveryAddress, SHIP_TO);
   const halfW = (RIGHT - M) / 2;
-  const blockLines = Math.max(BILL_TO.length, SHIP_TO.length);
+  const blockLines = Math.max(billTo.length, shipTo.length);
   const blockH = 14 + blockLines * 10 + 6;
   rect(M, y - blockH, halfW, blockH);
   rect(M + halfW, y - blockH, halfW, blockH);
   draw("Billing Address", M + 4, y - 10, { size: 7.5, font: bold, color: muted });
   draw("Delivery Address", M + halfW + 4, y - 10, { size: 7.5, font: bold, color: muted });
   let by = y - 22;
-  for (const l of BILL_TO) {
+  for (const l of billTo) {
     draw(l, M + 4, by, { size: 7.5 });
     by -= 10;
   }
   by = y - 22;
-  for (const l of SHIP_TO) {
+  for (const l of shipTo) {
     draw(l, M + halfW + 4, by, { size: 7.5 });
     by -= 10;
   }
@@ -544,7 +587,8 @@ export async function buildPoPdf(input: PoPdfInput): Promise<Buffer> {
     rect(sx, y - rowH, labelCellW, rowH);
     rect(sx + labelCellW, y - rowH, sumW - labelCellW, rowH);
     draw(label, sx + 4, y - rowH + 5, { size: 8, font: strong ? bold : font });
-    drawR(money(val), RIGHT - 4, y - rowH + 5, {
+    // A blank template leaves the amounts empty — "Rs. 0.00" reads as a real zero total.
+    drawR(input.blank ? "" : money(val), RIGHT - 4, y - rowH + 5, {
       size: strong ? 9 : 8,
       font: strong ? bold : font,
       color: strong ? orange : ink,
@@ -562,18 +606,21 @@ export async function buildPoPdf(input: PoPdfInput): Promise<Buffer> {
   }
   y -= 14;
 
-  // Status line — same document before and after approval, only this changes.
-  const status = input.status ?? "PENDING";
-  const statusLabel =
-    status === "APPROVED"
-      ? "APPROVED"
-      : status === "REJECTED"
-        ? "REJECTED"
-        : "PENDING APPROVAL";
-  const statusColor =
-    status === "APPROVED" ? green : status === "REJECTED" ? red : orange;
-  draw(`Status: ${statusLabel}`, M, y, { size: 8, color: statusColor, font: bold });
-  y -= 16;
+  // Status line — same document before and after approval, only this changes. A blank
+  // template has no status to report, so the line is dropped rather than left dangling.
+  if (!input.blank && input.showStatus !== false) {
+    const status = input.status ?? "PENDING";
+    const statusLabel =
+      status === "APPROVED"
+        ? "APPROVED"
+        : status === "REJECTED"
+          ? "REJECTED"
+          : "PENDING APPROVAL";
+    const statusColor =
+      status === "APPROVED" ? green : status === "REJECTED" ? red : orange;
+    draw(`Status: ${statusLabel}`, M, y, { size: 8, color: statusColor, font: bold });
+    y -= 16;
+  }
 
   // ---- Standard Terms & Conditions ----
   ensure(60);

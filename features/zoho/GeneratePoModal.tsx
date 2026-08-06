@@ -3,6 +3,7 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
 import type { PurchaseOrderDto, VendorDto } from "@shared";
 import { Modal } from "@/components/Modal";
+import { SearchableSelect } from "@/components/SearchableSelect";
 import { vendorsApi, purchaseOrdersApi, PoLineItemInput } from "@/lib/api";
 import { apiError } from "@/lib/api-client";
 import ProgressButton from "@/components/ui/progress-button";
@@ -78,6 +79,14 @@ export function GeneratePoModal({ onClose, initialVendorId, editing }: Props) {
     queryFn: () => vendorsApi.list({ pageSize: 200 }),
   });
   const vendors = vendorsPage?.items ?? [];
+  const vendorOptions = useMemo(
+    () =>
+      vendors.map((v: VendorDto) => ({
+        value: v.id,
+        label: `${v.name}${v.zohoVendorId ? ` — Zoho ID: ${v.zohoVendorId}` : " (not linked to Zoho)"}`,
+      })),
+    [vendors],
+  );
 
   // In edit mode everything is prefilled from the existing PO.
   const [dashboardVendorId, setDashboardVendorId] = useState(
@@ -214,23 +223,16 @@ export function GeneratePoModal({ onClose, initialVendorId, editing }: Props) {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           <label className="block">
             <span className="label">Vendor *</span>
-            <select
-              className="input mt-1 disabled:opacity-60 disabled:cursor-not-allowed"
+            <SearchableSelect
               value={dashboardVendorId}
               // The vendor is fixed once a PO is raised — changing it would make the
               // Zoho link and any approval already in flight meaningless.
               disabled={isEdit}
-              title={isEdit ? "The vendor can't be changed after the PO is raised" : undefined}
-              onChange={(e) => onPickVendor(e.target.value)}
-            >
-              <option value="">Select vendor…</option>
-              {vendors.map((v: VendorDto) => (
-                <option key={v.id} value={v.id}>
-                  {v.name}
-                  {v.zohoVendorId ? ` — Zoho ID: ${v.zohoVendorId}` : " (not linked to Zoho)"}
-                </option>
-              ))}
-            </select>
+              onChange={onPickVendor}
+              options={vendorOptions}
+              placeholder="Select vendor…"
+              className="mt-1"
+            />
           </label>
           <label className="block">
             <span className="label">PO number (optional)</span>

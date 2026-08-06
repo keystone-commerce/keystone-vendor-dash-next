@@ -59,11 +59,28 @@ function Column({
   vendors: VendorDto[];
   onOpenVendor: (id: string) => void;
 }) {
+  const catalogueTotal = vendors.reduce((sum, vendor) => sum + (vendor.catalogueCount ?? 0), 0);
+  const billTotal = vendors.reduce((sum, vendor) => sum + (vendor.billCount ?? 0), 0);
+
   return (
     <div className="card p-3">
-      <div className="flex items-center justify-between mb-3 px-1">
+      <div className="flex flex-wrap items-center justify-between gap-2 mb-3 px-1">
         <h3 className="font-semibold">{STAGE_LABELS[stage]}</h3>
-        <span className="chip bg-orange-light text-orange-deep">{vendors.length}</span>
+        <div className="flex flex-wrap items-center justify-end gap-1">
+          <span className="chip bg-orange-light text-orange-deep">
+            {vendors.length} vendor{vendors.length === 1 ? "" : "s"}
+          </span>
+          {stage === "CATALOGUE_RECEIVED" && (
+            <span className="chip bg-keystone-blue/10 text-keystone-blue">
+              {catalogueTotal} catalogue{catalogueTotal === 1 ? "" : "s"}
+            </span>
+          )}
+          {stage === "PURCHASE_MADE" && (
+            <span className="chip bg-keystone-green/10 text-keystone-green">
+              {billTotal} bill{billTotal === 1 ? "" : "s"}
+            </span>
+          )}
+        </div>
       </div>
       <div className="space-y-2">
         {vendors.length === 0 && (
