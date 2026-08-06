@@ -4,7 +4,7 @@ import { HttpError } from "../auth";
 import { audit } from "../audit";
 import { upsertFromZoho } from "../bills";
 import * as client from "./client";
-import { matchVendor } from "./matcher";
+import { matchVendorFromList } from "./matcher";
 import { mapZohoStatus } from "./status-util";
 import { healthCheck } from "./client";
 import { syncModule, zohoDc } from "./auth";
@@ -18,6 +18,10 @@ interface SyncResult {
   skipped: number;
   errors: number;
 }
+
+// Keep concurrency below the RDS connection limit while still avoiding a fully
+// serial sync for larger Zoho organisations.
+const BILL_SYNC_BATCH_SIZE = 3;
 
 // Best-effort, per-instance (fine for status display; unmatched itself is in the DB).
 let lastSyncAt: string | null = null;
@@ -80,20 +84,27 @@ export async function runSync(actorUserId: string | null): Promise<SyncResult> {
   // Rebuild the unmatched view from scratch each sync.
   await prisma.zohoUnmatchedBill.deleteMany({});
 
-  for (const bill of bills) {
+  // Matching is read-only, so load the vendor list once instead of repeating
+  // multiple RDS queries for every unmatched bill.
+  const vendors = await prisma.vendor.findMany({
+    select: { id: true, name: true, zohoVendorId: true },
+  });
+
+  const processBill = async (bill: client.ZohoBill): Promise<SyncResult> => {
+    const delta: SyncResult = { added: 0, updated: 0, unmatched: 0, skipped: 0, errors: 0 };
     try {
       const status = mapZohoStatus(bill.status);
       if (status === null) {
-        result.skipped++;
-        continue;
+        delta.skipped++;
+        return delta;
       }
       const existing = await prisma.bill.findUnique({ where: { zohoId: bill.zohoId } });
       if (existing) {
         await upsertFromZoho(existing.vendorId, toUpsert(bill, status), actorUserId);
-        result.updated++;
-        continue;
+        delta.updated++;
+        return delta;
       }
-      const vendorId = await matchVendor(bill);
+      const vendorId = matchVendorFromList(bill, vendors);
       if (!vendorId) {
         await prisma.zohoUnmatchedBill.create({
           data: {
@@ -108,14 +119,27 @@ export async function runSync(actorUserId: string | null): Promise<SyncResult> {
             viewUrl: bill.viewUrl,
           },
         });
-        result.unmatched++;
-        continue;
+        delta.unmatched++;
+        return delta;
       }
       const { created } = await upsertFromZoho(vendorId, toUpsert(bill, status), actorUserId);
-      created ? result.added++ : result.updated++;
+      created ? delta.added++ : delta.updated++;
     } catch (err) {
-      result.errors++;
+      delta.errors++;
       console.warn(`[zoho] failed on "${bill.billNumber}": ${(err as Error).message}`);
+    }
+    return delta;
+  };
+
+  for (let start = 0; start < bills.length; start += BILL_SYNC_BATCH_SIZE) {
+    const batch = bills.slice(start, start + BILL_SYNC_BATCH_SIZE);
+    const deltas = await Promise.all(batch.map(processBill));
+    for (const delta of deltas) {
+      result.added += delta.added;
+      result.updated += delta.updated;
+      result.unmatched += delta.unmatched;
+      result.skipped += delta.skipped;
+      result.errors += delta.errors;
     }
   }
 

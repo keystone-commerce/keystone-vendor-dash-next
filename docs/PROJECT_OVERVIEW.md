@@ -430,11 +430,10 @@ schemas in `lib/shared/schemas.ts` exist and are exported, but the vendor create
 does **not** parse them — it calls `assertValidGstin()`, `assertContactDetails()` and so on.
 Follow the surrounding idiom; don't assume a schema is enforced because it exists.
 
-**Batch database work; don't loop per row.** RDS round-trips measure ~45 ms. The bill sync
-originally issued 5–6 sequential queries per bill, which at 400 bills exceeded the 60-second
-function limit and was silently killed mid-loop — bills after the cutoff simply never
-arrived, and because the audit row is written last, nothing recorded that it happened.
-Read once into a Map, compare in memory, write with `createMany`.
+**Batch database work; don't loop per row.** RDS round-trips measure ~45 ms. The Zoho bill
+sync loads vendors once, matches in memory, and processes bills in bounded batches of three.
+Each batch runs concurrently, then the next batch starts, keeping pressure on Zoho and RDS
+below the connection limit while avoiding a fully serial sync.
 
 **`maxDuration = 60`** on sync routes. That is a hard ceiling.
 
@@ -486,8 +485,7 @@ is the real gate, alongside `next build`.
 
 ## 11. Current state and open work
 
-`main` is at PR **#12**. This snapshot was refreshed for PR **#16** on 2026-08-06 at
-commit `5b0e7f9`:
+`main` is at PR **#12**. This snapshot was refreshed for PR **#16** on 2026-08-06.
 
 | Branch | PR | Contents |
 |---|---|---|
@@ -497,9 +495,9 @@ commit `5b0e7f9`:
 
 ### Known gaps
 
-1. **Bill sync is still row-at-a-time** — 5–6 queries per bill against a 60 s limit. Fine at
-   ~160 bills, not beyond. The fix (read once, match in memory, skip unchanged, `createMany`)
-   is designed but not implemented.
+1. **Sync is still a full re-read** — bills are now processed in bounded batches of three,
+   but every run still fetches and checks every bill. A background job and incremental sync
+   using Zoho's `last_modified_time` are still needed for much larger organisations.
 2. **No incremental sync.** Every run reprocesses every bill; Zoho's `last_modified_time` is
    not stored.
 3. **No 429 handling or backoff** for Zoho.
