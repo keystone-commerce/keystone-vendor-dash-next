@@ -196,10 +196,16 @@ export async function assignUnmatched(zohoId: string, vendorId: string, actorUse
 
 export interface ZohoVendorImportResult {
   imported: number;
+  /** Names of Zoho contacts created as dashboard vendors. */
+  importedNames: string[];
   /** Already present but not linked because the match was ambiguous or already linked elsewhere. */
   skippedExisting: number;
+  /** Names of Zoho contacts skipped because their dashboard vendor was already linked. */
+  skippedNames: string[];
   /** Existing dashboard vendors that were linked to their matching Zoho contact. */
   linkedExisting: number;
+  /** Names of existing dashboard vendors linked to Zoho contacts. */
+  linkedNames: string[];
   /** Zoho contacts that matched multiple dashboard vendors or multiple contacts claimed one vendor. */
   ambiguous: string[];
   /** Dashboard vendors already linked to a different Zoho contact, or lost a race while linking. */
@@ -241,8 +247,11 @@ export async function importVendorsFromZoho(
   if (!zohoVendors.length) {
     return {
       imported: 0,
+      importedNames: [],
       skippedExisting: 0,
+      skippedNames: [],
       linkedExisting: 0,
+      linkedNames: [],
       ambiguous: [],
       conflicts: [],
       duplicateZohoNames: [],
@@ -263,7 +272,10 @@ export async function importVendorsFromZoho(
   const rows: any[] = [];
   const incomplete: string[] = [];
   let skippedExisting = 0;
+  const skippedNames: string[] = [];
   let linkedExisting = 0;
+  const linkedNames: string[] = [];
+  const importedNames: string[] = [];
   const ambiguous: string[] = [];
   const conflicts: string[] = [];
   const duplicateZohoNames: string[] = [];
@@ -279,6 +291,7 @@ export async function importVendorsFromZoho(
     if (!name) return false;
     if (linkedIds.has(v.id)) {
       skippedExisting++;
+      skippedNames.push(name);
       return false;
     }
 
@@ -328,6 +341,7 @@ export async function importVendorsFromZoho(
   for (const link of linksToWrite) {
     if (await linkVendorToZoho(link.vendorId, link.zohoVendorId, actorUserId, "import")) {
       linkedExisting++;
+      linkedNames.push(link.name);
     } else {
       conflicts.push(link.name);
     }
@@ -401,6 +415,7 @@ export async function importVendorsFromZoho(
     // got there first.
     const written = await prisma.vendor.createMany({ data: rows, skipDuplicates: true });
     imported = written.count;
+    importedNames.push(...rows.slice(0, imported).map((row) => row.name));
     await audit({
       userId: actorUserId,
       action: "ZOHO_VENDOR_IMPORT",
@@ -412,8 +427,11 @@ export async function importVendorsFromZoho(
 
   return {
     imported,
+    importedNames,
     skippedExisting,
+    skippedNames,
     linkedExisting,
+    linkedNames,
     ambiguous,
     conflicts,
     duplicateZohoNames,
@@ -425,8 +443,11 @@ export async function importVendorsFromZoho(
 export interface ZohoVendorDetailRefreshResult {
   totalLinked: number;
   refreshed: number;
+  refreshedNames: string[];
   updated: number;
+  updatedNames: string[];
   incomplete: string[];
+  errorNames: string[];
   errors: string[];
 }
 
@@ -463,8 +484,11 @@ export async function refreshLinkedVendorDetails(
   }
 
   let refreshed = 0;
+  const refreshedNames: string[] = [];
   let updated = 0;
+  const updatedNames: string[] = [];
   const incomplete: string[] = [];
+  const errorNames: string[] = [];
   const errors: string[] = [];
   const DETAIL_CONCURRENCY = 4;
 
@@ -484,6 +508,7 @@ export async function refreshLinkedVendorDetails(
       const vendor = result.vendor;
       if ("error" in result) {
         errors.push(`${vendor.name}: ${result.error}`);
+        errorNames.push(vendor.name);
         if (!vendor.contactName || !vendor.phone || !vendor.email) incomplete.push(vendor.name);
         continue;
       }
@@ -507,14 +532,17 @@ export async function refreshLinkedVendorDetails(
           gstinOwners.set(gstin, vendor.id);
         } else {
           errors.push(`${vendor.name}: GSTIN ${gstin} is already assigned to another vendor.`);
+          errorNames.push(vendor.name);
         }
       }
 
       if (Object.keys(data).length) {
         await prisma.vendor.update({ where: { id: vendor.id }, data });
         updated++;
+        updatedNames.push(vendor.name);
       }
       refreshed++;
+      refreshedNames.push(vendor.name);
 
       const merged = { ...vendor, ...data };
       if (!merged.contactName || !merged.phone || !merged.email) incomplete.push(vendor.name);
@@ -529,7 +557,16 @@ export async function refreshLinkedVendorDetails(
     metadata: { totalLinked: linked.length, refreshed, updated, incomplete: incomplete.length, errors: errors.length },
   });
 
-  return { totalLinked: linked.length, refreshed, updated, incomplete, errors };
+  return {
+    totalLinked: linked.length,
+    refreshed,
+    refreshedNames,
+    updated,
+    updatedNames,
+    incomplete,
+    errorNames,
+    errors,
+  };
 }
 
 export async function getStatus() {
