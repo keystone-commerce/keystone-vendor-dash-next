@@ -254,6 +254,11 @@ export function BulkAddVendorsModal({ onClose }: { onClose: () => void }) {
               Imported <strong>{csvReport.imported}</strong> · skipped{" "}
               <strong>{csvReport.skippedExisting}</strong> already present · {csvReport.totalRows}{" "}
               row(s) in the file.
+              {csvReport.skippedNames.length > 0 && (
+                <div className="mt-2 text-xs text-muted">
+                  Already in the dashboard: {csvReport.skippedNames.join(", ")}
+                </div>
+              )}
             </div>
           )}
 

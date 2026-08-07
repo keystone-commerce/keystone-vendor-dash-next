@@ -103,6 +103,7 @@ export const vendorsApi = {
 export interface VendorImportResult {
   imported: number;
   skippedExisting: number;
+  skippedNames: string[];
   totalRows: number;
   errors: { row: number; message: string }[];
 }
