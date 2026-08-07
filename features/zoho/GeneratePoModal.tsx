@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
+import { PO_BILLING_ADDRESSES } from "@shared";
 import type { PurchaseOrderDto, VendorDto } from "@shared";
 import { Modal } from "@/components/Modal";
 import { SearchableSelect } from "@/components/SearchableSelect";
@@ -42,6 +43,8 @@ const emptyRow = (): LineRow => ({
   rate: 0,
   gstPercent: 18,
 });
+
+const billingAddressOptions = PO_BILLING_ADDRESSES.map(({ value, label }) => ({ value, label }));
 
 /** Coerce a form value to a safe, non-negative number (NaN/empty/negative -> 0). */
 const num = (v: unknown): number => {
@@ -96,6 +99,9 @@ export function GeneratePoModal({ onClose, initialVendorId, editing }: Props) {
   const [poNumber, setPoNumber] = useState(editing?.poNumber ?? "");
   // <input type="date"> needs yyyy-mm-dd, so trim the stored ISO timestamp.
   const [deliveryDate, setDeliveryDate] = useState(editing?.deliveryDate?.slice(0, 10) ?? "");
+  const [billingAddress, setBillingAddress] = useState(
+    editing?.billingAddress ?? PO_BILLING_ADDRESSES[0].value,
+  );
   const [rows, setRows] = useState<LineRow[]>(editing ? rowsFromPo(editing) : [emptyRow()]);
 
   // Load the picked vendor's full detail (incl. catalogue items) so we can offer a picker.
@@ -175,6 +181,7 @@ export function GeneratePoModal({ onClose, initialVendorId, editing }: Props) {
         return purchaseOrdersApi.update(editing.id, {
           poNumber: poNumber.trim() || null,
           deliveryDate: deliveryDate || null,
+          billingAddress,
           lineItems,
         });
       }
@@ -184,6 +191,7 @@ export function GeneratePoModal({ onClose, initialVendorId, editing }: Props) {
         vendorId: dashboardVendorId,
         poNumber: poNumber.trim() || undefined,
         deliveryDate: deliveryDate || null,
+        billingAddress,
         lineItems,
       });
     },
@@ -254,6 +262,19 @@ export function GeneratePoModal({ onClose, initialVendorId, editing }: Props) {
               onChange={(e) => setDeliveryDate(e.target.value)}
               title="When the vendor must deliver — printed on the purchase order"
             />
+          </label>
+          <label className="block md:col-span-2">
+            <span className="label">Billing address *</span>
+            <SearchableSelect
+              value={billingAddress}
+              onChange={setBillingAddress}
+              options={billingAddressOptions}
+              placeholder="Select billing address"
+              className="mt-1"
+            />
+            <span className="text-xs text-muted mt-1 block">
+              This Keystone address is printed in the Billing Address section of the PO.
+            </span>
           </label>
         </div>
 

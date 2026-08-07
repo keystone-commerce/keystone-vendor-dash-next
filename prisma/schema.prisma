@@ -187,6 +187,8 @@ model PurchaseOrder {
   zohoId         String?
   /** When the vendor is required to deliver. Filled by procurement, printed on the PO. */
   deliveryDate   DateTime?
+  /** Keystone billing address selected for this PO. */
+  billingAddress String?
   createdById    String?
   decidedById    String?
   decisionReason String?

@@ -212,7 +212,7 @@ export interface ZohoVendorImportResult {
   conflicts: string[];
   /** Zoho contacts skipped because another Zoho contact has the same normalized name. */
   duplicateZohoNames: string[];
-  /** Imported, but missing contact person / mobile / email, so POs are blocked for them. */
+  /** Imported, but missing mobile or email, so PO communication is blocked for them. */
   incomplete: string[];
   totalFromZoho: number;
 }
@@ -392,7 +392,7 @@ export async function importVendorsFromZoho(
         : null;
     if (gstin) gstins.add(gstin);
 
-    if (!v.contactName || !v.phone || !v.email) incomplete.push(name);
+    if (!v.phone || !v.email) incomplete.push(name);
 
     rows.push({
       name,
@@ -509,7 +509,7 @@ export async function refreshLinkedVendorDetails(
       if ("error" in result) {
         errors.push(`${vendor.name}: ${result.error}`);
         errorNames.push(vendor.name);
-        if (!vendor.contactName || !vendor.phone || !vendor.email) incomplete.push(vendor.name);
+        if (!vendor.phone || !vendor.email) incomplete.push(vendor.name);
         continue;
       }
 
@@ -545,7 +545,7 @@ export async function refreshLinkedVendorDetails(
       refreshedNames.push(vendor.name);
 
       const merged = { ...vendor, ...data };
-      if (!merged.contactName || !merged.phone || !merged.email) incomplete.push(vendor.name);
+      if (!merged.phone || !merged.email) incomplete.push(vendor.name);
     }
   }
 

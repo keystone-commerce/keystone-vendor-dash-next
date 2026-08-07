@@ -149,7 +149,7 @@ export function BulkAddVendorsModal({ onClose }: { onClose: () => void }) {
           </div>
 
           <p className="text-xs text-muted mt-2">
-            Refresh linked details fills missing contact person, mobile, email, GSTIN and
+            Refresh linked details fills missing mobile, email, GSTIN and
             addresses for vendors already linked to Zoho. It does not create or edit anything
             in Zoho.
           </p>
@@ -198,8 +198,8 @@ export function BulkAddVendorsModal({ onClose }: { onClose: () => void }) {
               )}
               {zohoReport.incomplete.length > 0 && (
                 <div className="mt-2 text-xs text-keystone-amber">
-                  ⚠ {zohoReport.incomplete.length} vendor(s) came across without a contact
-                  person, mobile or email. They&apos;re saved, but a purchase order can&apos;t
+                  ⚠ {zohoReport.incomplete.length} vendor(s) came across without mobile or
+                  email. They&apos;re saved, but a purchase order can&apos;t
                   be raised for them until those are filled in:{" "}
                   <span className="text-muted">{zohoReport.incomplete.join(", ")}</span>
                 </div>
@@ -246,8 +246,8 @@ export function BulkAddVendorsModal({ onClose }: { onClose: () => void }) {
         <section className="border border-border rounded-keystone p-4">
           <h3 className="font-semibold text-sm">Upload a CSV</h3>
           <p className="text-xs text-muted mt-1">
-            For vendors that aren&apos;t in Zoho yet. Name, Category, Contact Name, Phone and
-            Email are required. One bad row rejects the whole file, so nothing lands
+            For vendors that aren&apos;t in Zoho yet. Name, Category, Phone and Email are required;
+            Contact Name is optional. One bad row rejects the whole file, so nothing lands
             half-imported — and re-uploading a corrected file won&apos;t duplicate anything.
           </p>
           <div className="flex flex-wrap gap-2 mt-3">

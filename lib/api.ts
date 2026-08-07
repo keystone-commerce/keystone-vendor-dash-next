@@ -56,7 +56,7 @@ export interface CreateVendorInput {
   name: string;
   category: VendorCategory;
   status?: VendorStatus;
-  contactName?: string;
+  contactName?: string | null;
   phone?: string;
   email?: string;
   contractValue?: number; // paise
@@ -312,6 +312,8 @@ export interface CreatePoInput {
   poNumber?: string;
   /** Agreed delivery date as yyyy-mm-dd. Printed on the PO. */
   deliveryDate?: string | null;
+  /** Keystone billing address selected for this PO. */
+  billingAddress: string;
   lineItems: PoLineItemInput[];
 }
 export const purchaseOrdersApi = {
@@ -327,6 +329,7 @@ export const purchaseOrdersApi = {
     input: {
       poNumber?: string | null;
       deliveryDate?: string | null;
+      billingAddress?: string | null;
       lineItems?: PoLineItemInput[];
     },
   ) =>

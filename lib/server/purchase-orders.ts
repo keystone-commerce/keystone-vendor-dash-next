@@ -4,6 +4,7 @@ import { audit } from "./audit";
 import { sendMail } from "./mail";
 import { createZohoPurchaseOrder } from "./zoho";
 import { buildPoPdf, type PoPdfStatus } from "./po-pdf";
+import { PO_BILLING_ADDRESSES } from "@shared";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -23,6 +24,7 @@ function serialize(po: any) {
     ...po,
     lineItems: po.lineItems ?? [],
     vendorName: po.vendor?.name,
+    billingAddress: po.billingAddress ?? PO_BILLING_ADDRESSES[0].value,
     decidedAt: po.decidedAt ? po.decidedAt.toISOString() : null,
     deliveryDate: po.deliveryDate ? po.deliveryDate.toISOString() : null,
     createdAt: po.createdAt.toISOString(),
@@ -44,6 +46,7 @@ function buildKeystonePoPdf(
     lineItems: unknown;
     status?: string;
     deliveryDate?: Date | null;
+    billingAddress?: string | null;
   },
   overrides?: { poNumber?: string | null; status?: PoPdfStatus },
 ): Promise<Buffer> {
@@ -57,6 +60,7 @@ function buildKeystonePoPdf(
     vendorCode: po.vendor.zohoVendorId || po.vendor.id,
     status,
     deliveryDate: po.deliveryDate ?? null,
+    billingAddress: po.billingAddress ?? PO_BILLING_ADDRESSES[0].value,
     lineItems: (po.lineItems as any[]) ?? [],
     supplier: {
       address: po.vendor.gstAddress,
@@ -169,11 +173,17 @@ function assertItemCodes(lineItems: PoLine[]) {
   }
 }
 
+function parseBillingAddress(value: string | null | undefined): string {
+  const candidate = value?.trim();
+  if (!candidate) return PO_BILLING_ADDRESSES[0].value;
+  if (PO_BILLING_ADDRESSES.some((address) => address.value === candidate)) return candidate;
+  throw new HttpError(400, "Select one of the available Keystone billing addresses.");
+}
+
 /**
  * The Supplier Details block on the PO prints the contact person and their email /
- * mobile. Those became mandatory on the vendor form, but vendors created before that —
- * and any created straight through the API — can still be missing them, so check here
- * too. Otherwise the document reaches the supplier with blank rows.
+ * mobile. Contact person is optional because some Zoho vendors do not have one, while
+ * email and mobile are still required for supplier communication.
  */
 function assertVendorContactable(vendor: {
   name: string;
@@ -182,7 +192,6 @@ function assertVendorContactable(vendor: {
   phone: string | null;
 }) {
   const missing = [
-    !vendor.contactName?.trim() && "contact person",
     !vendor.email?.trim() && "email",
     !vendor.phone?.trim() && "mobile",
   ].filter(Boolean);
@@ -210,7 +219,7 @@ function assertVendorContactable(vendor: {
  * Shared by submit and edit: an edit re-sends so nobody approves against a stale PDF.
  */
 async function notifyApprovers(
-  po: { id: string; poNumber: string | null; createdAt: Date },
+  po: { id: string; poNumber: string | null; createdAt: Date; billingAddress?: string | null },
   vendor: any,
   lineItems: PoLine[],
   total: number,
@@ -231,7 +240,13 @@ async function notifyApprovers(
     // Same builder the approved PDF uses, so the approver reviews the exact document
     // that later goes out — only the status line differs.
     const pdf = await buildKeystonePoPdf(
-      { vendor, poNumber: po.poNumber, createdAt: po.createdAt, lineItems },
+      {
+        vendor,
+        poNumber: po.poNumber,
+        createdAt: po.createdAt,
+        lineItems,
+        billingAddress: po.billingAddress,
+      },
       { status: "PENDING" },
     );
     const fileLabel = (po.poNumber || `PO-${po.id.slice(0, 8)}`).replace(/[^\w.-]/g, "_");
@@ -258,7 +273,13 @@ async function notifyApprovers(
 }
 
 export async function createPurchaseOrder(
-  dto: { vendorId: string; poNumber?: string; lineItems: PoLine[]; deliveryDate?: string | null },
+  dto: {
+    vendorId: string;
+    poNumber?: string;
+    lineItems: PoLine[];
+    deliveryDate?: string | null;
+    billingAddress?: string | null;
+  },
   actorUserId: string | null,
 ) {
   const vendor = await prisma.vendor.findUnique({ where: { id: dto.vendorId } });
@@ -277,6 +298,7 @@ export async function createPurchaseOrder(
       total,
       poNumber: dto.poNumber ?? null,
       deliveryDate: parseDeliveryDate(dto.deliveryDate),
+      billingAddress: parseBillingAddress(dto.billingAddress),
       createdById: actorUserId,
     },
     include: { vendor: { select: { name: true } } },
@@ -300,7 +322,12 @@ export async function createPurchaseOrder(
  */
 export async function updatePurchaseOrder(
   id: string,
-  dto: { poNumber?: string | null; lineItems?: PoLine[]; deliveryDate?: string | null },
+  dto: {
+    poNumber?: string | null;
+    lineItems?: PoLine[];
+    deliveryDate?: string | null;
+    billingAddress?: string | null;
+  },
   actor: { userId: string | null; role: string },
 ) {
   const po = await prisma.purchaseOrder.findUnique({ where: { id }, include: { vendor: true } });
@@ -344,6 +371,9 @@ export async function updatePurchaseOrder(
       // existing date rather than silently clearing it.
       ...(dto.deliveryDate !== undefined
         ? { deliveryDate: parseDeliveryDate(dto.deliveryDate) }
+        : {}),
+      ...(dto.billingAddress !== undefined
+        ? { billingAddress: parseBillingAddress(dto.billingAddress) }
         : {}),
       // Editing a rejected PO puts it back in the queue and clears the old reason.
       ...(wasRejected ? { status: "PENDING", decisionReason: null, decidedAt: null, decidedById: null } : {}),

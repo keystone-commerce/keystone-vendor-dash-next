@@ -33,6 +33,8 @@ export interface PurchaseOrderDto {
   decidedAt: string | null;
   /** Agreed delivery date (ISO), or null if none has been set yet. */
   deliveryDate: string | null;
+  /** Keystone billing address selected for this PO, or the default for older POs. */
+  billingAddress: string | null;
   createdAt: string;
   updatedAt: string;
 }
