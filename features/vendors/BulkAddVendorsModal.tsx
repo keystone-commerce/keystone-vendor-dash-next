@@ -162,6 +162,21 @@ export function BulkAddVendorsModal({ onClose }: { onClose: () => void }) {
                 <strong>{zohoReport.skippedExisting}</strong> already present · Zoho has{" "}
                 {zohoReport.totalFromZoho} vendor(s).
               </div>
+              {zohoReport.importedNames.length > 0 && (
+                <div className="mt-2 text-xs text-keystone-green">
+                  Imported vendors: {zohoReport.importedNames.join(", ")}
+                </div>
+              )}
+              {zohoReport.linkedNames.length > 0 && (
+                <div className="mt-2 text-xs text-keystone-green">
+                  Linked existing vendors: {zohoReport.linkedNames.join(", ")}
+                </div>
+              )}
+              {zohoReport.skippedNames.length > 0 && (
+                <div className="mt-2 text-xs text-keystone-red">
+                  Skipped vendors (already present): {zohoReport.skippedNames.join(", ")}
+                </div>
+              )}
               {zohoReport.ambiguous.length > 0 && (
                 <div className="mt-2 text-xs text-keystone-amber">
                   ⚠ {zohoReport.ambiguous.length} ambiguous match(es) need review:{" "}
@@ -196,6 +211,21 @@ export function BulkAddVendorsModal({ onClose }: { onClose: () => void }) {
               Refreshed <strong>{refreshReport.refreshed}</strong> of{" "}
               <strong>{refreshReport.totalLinked}</strong> linked vendor(s); updated{" "}
               <strong>{refreshReport.updated}</strong>.
+              {refreshReport.refreshedNames.length > 0 && (
+                <div className="mt-2 text-xs text-keystone-green">
+                  Refreshed vendors: {refreshReport.refreshedNames.join(", ")}
+                </div>
+              )}
+              {refreshReport.updatedNames.length > 0 && (
+                <div className="mt-2 text-xs text-keystone-green">
+                  Updated vendors: {refreshReport.updatedNames.join(", ")}
+                </div>
+              )}
+              {refreshReport.errorNames.length > 0 && (
+                <div className="mt-2 text-xs text-keystone-red">
+                  Could not refresh vendors: {refreshReport.errorNames.join(", ")}
+                </div>
+              )}
               {refreshReport.incomplete.length > 0 && (
                 <div className="mt-2 text-xs text-keystone-amber">
                   Still incomplete ({refreshReport.incomplete.length}):{" "}
@@ -205,7 +235,7 @@ export function BulkAddVendorsModal({ onClose }: { onClose: () => void }) {
               {refreshReport.errors.length > 0 && (
                 <div className="mt-2 text-xs text-keystone-red">
                   Could not refresh {refreshReport.errors.length} vendor(s):{" "}
-                  <span className="text-muted">{refreshReport.errors.join("; ")}</span>
+                  <span>{refreshReport.errors.join("; ")}</span>
                 </div>
               )}
             </div>
@@ -254,6 +284,16 @@ export function BulkAddVendorsModal({ onClose }: { onClose: () => void }) {
               Imported <strong>{csvReport.imported}</strong> · skipped{" "}
               <strong>{csvReport.skippedExisting}</strong> already present · {csvReport.totalRows}{" "}
               row(s) in the file.
+              {csvReport.importedNames.length > 0 && (
+                <div className="mt-2 text-xs text-keystone-green">
+                  Imported vendors: {csvReport.importedNames.join(", ")}
+                </div>
+              )}
+              {csvReport.skippedNames.length > 0 && (
+                <div className="mt-2 text-xs text-keystone-red">
+                  Skipped vendors (already in the dashboard): {csvReport.skippedNames.join(", ")}
+                </div>
+              )}
             </div>
           )}
 
