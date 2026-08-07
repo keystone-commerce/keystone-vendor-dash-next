@@ -102,6 +102,7 @@ export const vendorsApi = {
 
 export interface VendorImportResult {
   imported: number;
+  importedNames: string[];
   skippedExisting: number;
   skippedNames: string[];
   totalRows: number;
@@ -110,8 +111,11 @@ export interface VendorImportResult {
 
 export interface ZohoVendorImportResult {
   imported: number;
+  importedNames: string[];
   skippedExisting: number;
+  skippedNames: string[];
   linkedExisting: number;
+  linkedNames: string[];
   ambiguous: string[];
   conflicts: string[];
   duplicateZohoNames: string[];
@@ -123,8 +127,11 @@ export interface ZohoVendorImportResult {
 export interface ZohoVendorDetailRefreshResult {
   totalLinked: number;
   refreshed: number;
+  refreshedNames: string[];
   updated: number;
+  updatedNames: string[];
   incomplete: string[];
+  errorNames: string[];
   errors: string[];
 }
 

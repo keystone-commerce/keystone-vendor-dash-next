@@ -235,6 +235,8 @@ export async function setZohoLink(id: string, zohoVendorId: string | null, actor
 export interface VendorImportResult {
   /** Rows created. 0 when the file was rejected. */
   imported: number;
+  /** Names of rows imported successfully. */
+  importedNames: string[];
   /** Rows that matched a vendor we already have — not an error, just nothing to do. */
   skippedExisting: number;
   /** Names of rows skipped because that vendor name or GSTIN already exists. */
@@ -351,6 +353,7 @@ export async function importVendorsCsv(
   const seenGstins = new Set<string>();
   const toCreate: Prisma.VendorCreateManyInput[] = [];
   let skippedExisting = 0;
+  const importedNames: string[] = [];
   const skippedNames: string[] = [];
 
   const categories = new Set(VENDOR_CATEGORIES.map((c) => c.toLowerCase()));
@@ -440,7 +443,14 @@ export async function importVendorsCsv(
 
   // All-or-nothing: report and write nothing.
   if (errors.length) {
-    return { imported: 0, skippedExisting: 0, skippedNames: [], totalRows: dataRows.length, errors };
+    return {
+      imported: 0,
+      importedNames: [],
+      skippedExisting: 0,
+      skippedNames: [],
+      totalRows: dataRows.length,
+      errors,
+    };
   }
 
   let imported = 0;
@@ -449,6 +459,7 @@ export async function importVendorsCsv(
     // index in case a concurrent import got there first.
     const written = await prisma.vendor.createMany({ data: toCreate, skipDuplicates: true });
     imported = written.count;
+    importedNames.push(...toCreate.slice(0, imported).map((vendor) => vendor.name));
     await audit({
       userId: actorUserId,
       action: "VENDOR_IMPORT_CSV",
@@ -458,7 +469,7 @@ export async function importVendorsCsv(
     });
   }
 
-  return { imported, skippedExisting, skippedNames, totalRows: dataRows.length, errors: [] };
+  return { imported, importedNames, skippedExisting, skippedNames, totalRows: dataRows.length, errors: [] };
 }
 
 /** Header + one example row, so an import can start from a correct file. */
