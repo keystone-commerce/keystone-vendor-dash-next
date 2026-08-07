@@ -102,6 +102,7 @@ export const vendorsApi = {
 
 export interface VendorImportResult {
   imported: number;
+  importedNames: string[];
   skippedExisting: number;
   skippedNames: string[];
   totalRows: number;
