@@ -127,16 +127,15 @@ function assertValidGstin(gstin: unknown) {
 }
 
 /**
- * Contact person, mobile and email are printed in the Supplier Details block of every
- * purchase order, so a vendor missing them produces a PO with blank rows and no way for
- * anyone to reach the supplier about it. All three are required.
+ * Mobile and email are printed in the Supplier Details block of every purchase order,
+ * so they remain required for supplier communication. Contact person is optional.
  *
  * On update only the keys actually sent are checked, so a PATCH that touches unrelated
- * fields still works — but none of the three can be cleared back to empty.
+ * fields still works — but mobile and email cannot be cleared back to empty.
  */
 function assertContactDetails(dto: any, { partial }: { partial: boolean }) {
   const check = (
-    key: "contactName" | "phone" | "email",
+    key: "phone" | "email",
     label: string,
     validate?: (v: string) => string | null,
   ) => {
@@ -152,7 +151,6 @@ function assertContactDetails(dto: any, { partial }: { partial: boolean }) {
     if (problem) throw new HttpError(400, problem);
   };
 
-  check("contactName", "Contact person");
   check("phone", "Mobile number", (v) =>
     /^\d{10}$/.test(v) ? null : "Mobile number must be exactly 10 digits.",
   );
@@ -171,7 +169,7 @@ export async function createVendor(dto: any, actorUserId: string | null) {
         name: dto.name,
         category: dto.category,
         status: dto.status ?? "ACTIVE",
-        contactName: dto.contactName,
+        contactName: typeof dto.contactName === "string" && dto.contactName.trim() ? dto.contactName.trim() : null,
         phone: dto.phone,
         email: dto.email,
         contractValue: dto.contractValue ?? 0,
@@ -315,7 +313,7 @@ export async function importVendorsCsv(
     if (i >= 0) indexOf[field] = i;
   }
 
-  const required = ["name", "category", "contactName", "phone", "email"] as const;
+  const required = ["name", "category", "phone", "email"] as const;
   const missing = required.filter((f) => indexOf[f] === undefined);
   if (missing.length) {
     const labels: Record<string, string> = {
@@ -380,7 +378,6 @@ export async function importVendorsCsv(
     }
 
     const contactName = at("contactName");
-    if (!contactName) return fail("Contact Name is required.");
 
     const phone = at("phone").replace(/\D/g, "");
     if (!phone) return fail("Phone is required.");
@@ -420,7 +417,7 @@ export async function importVendorsCsv(
     toCreate.push({
       name,
       category: canonicalCategory,
-      contactName,
+      contactName: contactName || null,
       phone,
       email,
       contractValue: rupees * 100, // stored as paise
@@ -490,7 +487,7 @@ export function vendorImportTemplateCsv(): string {
     "Plot 49, Sira Industrial Area, Tumakuru 572137",
   ];
   const note = [
-    `# Name, Category, Contact Name, Phone (10 digits) and Email are required.`,
+    `# Name, Category, Phone (10 digits) and Email are required. Contact Name is optional.`,
     `# Valid categories: ${VENDOR_CATEGORIES.join(" | ")}`,
     `# Delete these comment lines and the example row before uploading.`,
   ];

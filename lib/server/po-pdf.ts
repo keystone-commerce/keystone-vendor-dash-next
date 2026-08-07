@@ -1,6 +1,7 @@
 import { PDFDocument, PDFFont, PDFPage, StandardFonts, rgb } from "pdf-lib";
 import fs from "fs";
 import path from "path";
+import { PO_BILLING_ADDRESSES } from "@shared";
 
 // Liwip logo for the top-right of the header. Drop the file at
 // lib/server/assets/liwip-logo.(png|jpg) and it's embedded automatically; until
@@ -90,13 +91,7 @@ const money = (n: number) =>
   (n ?? 0).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 // Keystone's own fixed details (from the official template).
-const BILL_TO = [
-  "Keystone Commerce Private Limited",
-  "5th Floor, Tower A, Dr Rajkumar Road",
-  "Bengaluru, Karnataka-560103",
-  "GSTIN: 29AAMCK2232K1Z9",
-  "PAN: AAMCK2232K",
-];
+const BILL_TO = PO_BILLING_ADDRESSES[0].value.split(/\r?\n/);
 const SHIP_TO = [
   "Keystone Commerce Private Limited",
   "Liwip Warehouse, Chunchaghatta Main Road,",

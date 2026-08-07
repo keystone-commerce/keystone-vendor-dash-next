@@ -25,8 +25,8 @@ export const createVendorSchema = z.object({
   name: z.string().min(1, "Vendor name is required"),
   category: z.enum(vendorCategoryValues),
   status: z.nativeEnum(VendorStatus).default(VendorStatus.ACTIVE),
-  // Required: all three are printed in the Supplier Details block of every PO.
-  contactName: z.string().trim().min(1, "Contact person is required"),
+  // Contact person is optional; older/Zoho-imported vendors may not have one.
+  contactName: z.string().trim().optional().nullable(),
   phone: z.string().trim().regex(/^\d{10}$/, "Mobile number must be exactly 10 digits"),
   email: z.string().trim().email("A valid email is required"),
   contractValue: z.number().int().min(0, "Contract value cannot be negative"),

@@ -59,7 +59,7 @@ export function VendorForm({ vendor, onClose }: Props) {
         category,
         // Sent as actual values (not `|| undefined`) — these are required, and omitting
         // them from a PATCH would let an existing vendor keep an empty contact block.
-        contactName: contactName.trim(),
+        contactName: contactName.trim() || null,
         phone: phone.trim(),
         email: email.trim(),
         contractValue: Math.round(contractValue * 100),
@@ -114,10 +114,6 @@ export function VendorForm({ vendor, onClose }: Props) {
       className="grid grid-cols-1 md:grid-cols-2 gap-4"
       onSubmit={(e) => {
         e.preventDefault();
-        if (!contactName.trim()) {
-          toast.error("Contact person is required — it appears on every purchase order.");
-          return;
-        }
         if (phone.length !== 10) {
           toast.error("Mobile number must be exactly 10 digits.");
           return;
@@ -148,15 +144,13 @@ export function VendorForm({ vendor, onClose }: Props) {
           />
         </div>
       </label>
-      {/* Contact person, phone and email are required — they fill the Supplier Details
-          block on every PO, which was going out with those rows blank. */}
+      {/* Contact person is optional because some existing Zoho vendors do not have one. */}
       <label className="block">
-        <span className="label">Contact person *</span>
+        <span className="label">Contact person</span>
         <input
           className="input mt-1"
           value={contactName}
           onChange={(e) => setContactName(e.target.value)}
-          required
         />
       </label>
       <label className="block">
