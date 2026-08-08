@@ -1,4 +1,5 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useState } from "react";
 import { toast } from "sonner";
 import {
   VENDOR_CATEGORY_LABELS,
@@ -21,6 +22,7 @@ const STAGE_LABELS: Record<VendorStage, string> = {
 };
 
 const STAGES: VendorStage[] = ["IN_TALKS", "CATALOGUE_RECEIVED", "PURCHASE_MADE"];
+const INITIAL_VISIBLE_VENDORS = 10;
 
 export function KanbanBoard({ vendors, onOpenVendor }: Props) {
   const grouped: Record<VendorStage, VendorDto[]> = {
@@ -59,8 +61,11 @@ function Column({
   vendors: VendorDto[];
   onOpenVendor: (id: string) => void;
 }) {
+  const [showAll, setShowAll] = useState(false);
   const catalogueTotal = vendors.reduce((sum, vendor) => sum + (vendor.catalogueCount ?? 0), 0);
   const billTotal = vendors.reduce((sum, vendor) => sum + (vendor.billCount ?? 0), 0);
+  const visibleVendors = showAll ? vendors : vendors.slice(0, INITIAL_VISIBLE_VENDORS);
+  const hiddenVendorCount = vendors.length - INITIAL_VISIBLE_VENDORS;
 
   return (
     <div className="card p-3">
@@ -88,10 +93,19 @@ function Column({
             No vendors in this stage.
           </div>
         )}
-        {vendors.map((v) => (
+        {visibleVendors.map((v) => (
           <KanbanCard key={v.id} vendor={v} onOpenVendor={onOpenVendor} />
         ))}
       </div>
+      {vendors.length > INITIAL_VISIBLE_VENDORS && (
+        <button
+          type="button"
+          className="btn w-full mt-3 py-2 text-xs"
+          onClick={() => setShowAll((current) => !current)}
+        >
+          {showAll ? "Show less" : `Show more (${hiddenVendorCount})`}
+        </button>
+      )}
     </div>
   );
 }
