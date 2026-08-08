@@ -59,8 +59,8 @@ export default function ExpandableSearchBar({
   return (
     <div
       ref={containerRef}
-      className={cn("relative inline-block", className)}
-      style={{ width: COLLAPSED_SIZE, height: COLLAPSED_SIZE }}
+      className={cn("relative inline-block transition-[width] duration-200", className)}
+      style={{ width: open ? width : COLLAPSED_SIZE, height: COLLAPSED_SIZE }}
     >
       <button
         type="button"
