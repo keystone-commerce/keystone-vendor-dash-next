@@ -61,7 +61,7 @@ export function ZohoBanner() {
   return (
     <div className="relative" ref={ref}>
       <button
-        className="btn shrink-0 whitespace-nowrap px-3 py-1.5 text-sm"
+        className="btn h-[38px] shrink-0 whitespace-nowrap px-3 py-1.5 text-sm"
         onClick={() => setOpen((v) => !v)}
         title={title}
       >

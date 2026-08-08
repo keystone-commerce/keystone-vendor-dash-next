@@ -67,7 +67,7 @@ export function Toolbar({
       />
       <div className="min-w-6 flex-1" />
       <SearchableSelect
-        className="w-[155px] shrink-0"
+        className="w-auto min-w-[150px] shrink-0 [&>button]:h-[38px] [&>button]:whitespace-nowrap"
         value={query.category ?? ""}
         onChange={(v) => onQueryChange({ category: v as VendorCategory | "" })}
         options={VENDOR_CATEGORIES}
@@ -76,7 +76,7 @@ export function Toolbar({
         placeholder="All Categories"
       />
       <SearchableSelect
-        className="w-[140px] shrink-0"
+        className="w-auto min-w-[140px] shrink-0 [&>button]:h-[38px] [&>button]:whitespace-nowrap"
         value={query.stage ?? ""}
         onChange={(v) => onQueryChange({ stage: v as VendorStage | "" })}
         options={(Object.keys(STAGE_LABELS) as VendorStage[]).map((s) => ({

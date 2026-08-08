@@ -42,7 +42,7 @@ export function DriveBanner() {
     <div className="relative inline-flex items-center" ref={ref}>
       {/* Split control: the label opens details, the arrow opens the Drive folder. */}
       <button
-        className="btn shrink-0 whitespace-nowrap rounded-r-none border-r-0 px-3 py-1.5 text-sm"
+        className="btn h-[38px] shrink-0 whitespace-nowrap rounded-r-none border-r-0 px-3 py-1.5 text-sm"
         onClick={() => setOpen((v) => !v)}
         title={title}
       >
@@ -55,7 +55,7 @@ export function DriveBanner() {
         )}
       </button>
       <a
-        className="btn shrink-0 rounded-l-none px-2.5 py-1.5 text-orange-deep font-semibold"
+        className="btn h-[38px] shrink-0 rounded-l-none px-2.5 py-1.5 text-orange-deep font-semibold"
         href={status?.folderUrl ?? "#"}
         target="_blank"
         rel="noreferrer"
