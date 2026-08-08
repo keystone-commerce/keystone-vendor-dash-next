@@ -61,7 +61,7 @@ export function Toolbar({
     <div className="flex flex-nowrap items-center gap-2 overflow-x-auto pb-1">
       {/* Flexes with the viewport so the row stays on one line on smaller laptops. */}
       <ExpandableSearchBar
-        width={240}
+        width={200}
         placeholder="Search vendors..."
         onSearch={(value) => onQueryChange({ search: value.trim() })}
       />
