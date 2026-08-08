@@ -60,7 +60,11 @@ export function ZohoBanner() {
 
   return (
     <div className="relative" ref={ref}>
-      <button className="btn" onClick={() => setOpen((v) => !v)} title={title}>
+      <button
+        className="btn shrink-0 whitespace-nowrap px-3 py-1.5 text-sm"
+        onClick={() => setOpen((v) => !v)}
+        title={title}
+      >
         <span className={`block w-2 h-2 shrink-0 self-center rounded-full ${dotClass}`} />
         Zoho Books
         {unmatched.length > 0 && (
