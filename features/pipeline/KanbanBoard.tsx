@@ -87,7 +87,7 @@ function Column({
           )}
         </div>
       </div>
-      <div className="space-y-2">
+      <div className="space-y-2 max-h-[60vh] overflow-y-auto pr-1">
         {vendors.length === 0 && (
           <div className="text-xs text-muted p-4 text-center border border-dashed border-border rounded-keystone">
             No vendors in this stage.
