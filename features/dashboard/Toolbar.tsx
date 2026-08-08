@@ -58,7 +58,7 @@ export function Toolbar({
   }
 
   return (
-    <div className="flex flex-wrap items-center gap-2">
+    <div className="flex flex-nowrap items-center gap-2 overflow-x-auto pb-1">
       {/* Flexes with the viewport so the row stays on one line on smaller laptops. */}
       <ExpandableSearchBar
         width={240}
