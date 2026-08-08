@@ -70,7 +70,7 @@ export default function ExpandableSearchBar({
           setOpen((current) => !current);
         }}
         className={cn(
-          "absolute inset-0 z-20 grid place-items-center rounded-full border",
+          "absolute left-0 top-0 z-20 grid size-10 place-items-center rounded-full border",
           "bg-secondary text-foreground/80 transition-colors hover:text-foreground",
           "dark:bg-secondary dark:text-foreground/80 dark:hover:text-foreground",
         )}
