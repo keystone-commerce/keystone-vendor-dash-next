@@ -65,6 +65,7 @@ export function Toolbar({
         placeholder="Search vendors..."
         onSearch={(value) => onQueryChange({ search: value.trim() })}
       />
+      <div className="min-w-6 flex-1" />
       <SearchableSelect
         className="w-[155px]"
         value={query.category ?? ""}
@@ -99,7 +100,6 @@ export function Toolbar({
           className="!w-auto min-h-0 shrink-0 [&>div>button]:h-[38px] [&>div>button]:rounded-keystone [&>div>button]:border-border"
         />
       )}
-      <div className="flex-1" />
       {/* Labels shorten below xl so the row still fits on smaller laptops. */}
       <button className="btn" onClick={onExport} title="Export vendors as CSV">
         Export<span className="hidden xl:inline">&nbsp;CSV</span>
