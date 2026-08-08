@@ -1,4 +1,4 @@
-import { ReactNode, useEffect, useState } from "react";
+import { ReactNode, useState } from "react";
 import { toast } from "sonner";
 import { VENDOR_CATEGORIES, VendorCategory, VendorStage } from "@shared";
 import { vendorsApi, VendorQuery } from "@/lib/api";
@@ -7,6 +7,7 @@ import { useAuthStore } from "@/lib/auth-store";
 import { SearchableSelect } from "@/components/SearchableSelect";
 import { InteractiveHoverButton } from "@/components/ui/interactive-hover-button";
 import { ShowMore } from "@/components/ui/show-more";
+import ExpandableSearchBar from "@/components/ui/expandable-search-bar";
 import { BulkAddVendorsModal } from "@/features/vendors/BulkAddVendorsModal";
 
 interface Props {
@@ -41,16 +42,6 @@ export function Toolbar({
   const isAdmin = useAuthStore((s) => s.user?.role) === "ADMIN";
   const [bulkOpen, setBulkOpen] = useState(false);
 
-  // Debounce the search box: typing used to fire a DB query on every keystroke.
-  const [searchText, setSearchText] = useState(query.search ?? "");
-  useEffect(() => {
-    const t = setTimeout(() => {
-      if ((query.search ?? "") !== searchText) onQueryChange({ search: searchText });
-    }, 350);
-    return () => clearTimeout(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchText]);
-
   async function onExport() {
     try {
       const csv = await vendorsApi.exportCsv();
@@ -69,11 +60,10 @@ export function Toolbar({
   return (
     <div className="flex flex-wrap items-center gap-2">
       {/* Flexes with the viewport so the row stays on one line on smaller laptops. */}
-      <input
-        className="input flex-1 min-w-[130px] max-w-[240px]"
-        placeholder="Search vendors…"
-        value={searchText}
-        onChange={(e) => setSearchText(e.target.value)}
+      <ExpandableSearchBar
+        width={240}
+        placeholder="Search vendors..."
+        onSearch={(value) => onQueryChange({ search: value.trim() })}
       />
       <SearchableSelect
         className="w-[155px]"
